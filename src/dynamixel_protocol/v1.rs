@@ -1,8 +1,12 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::Result;
 
+#[cfg(feature = "std")]
+use super::Protocol;
 use super::{
     packet::{InstructionPacket, Packet, StatusPacket},
-    CommunicationErrorKind, Protocol,
+    CommunicationErrorKind,
 };
 
 const BROADCAST_ID: u8 = 254;
@@ -277,6 +281,7 @@ impl InstructionKindV1 {
 
 #[derive(Debug)]
 pub(crate) struct V1;
+#[cfg(feature = "std")]
 impl Protocol<PacketV1> for V1 {}
 
 fn crc(data: &[u8]) -> u8 {

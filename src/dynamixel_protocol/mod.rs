@@ -1,19 +1,22 @@
+#[cfg(feature = "std")]
 use crate::Transport;
 
-mod packet;
+pub(crate) mod packet;
+#[cfg(feature = "std")]
 use packet::{InstructionPacket, Packet, StatusPacket};
 
-mod v1;
+pub(crate) mod v1;
 pub use v1::DynamixelErrorV1;
 use v1::V1;
 
-mod v2;
+pub(crate) mod v2;
 use v2::V2;
 
+#[cfg(feature = "std")]
 use crate::Result;
 
 #[derive(Debug)]
-enum ProtocolKind {
+pub(crate) enum ProtocolKind {
     V1(V1),
     /// The bool routes sync reads through fast sync read (protocol v2 only)
     V2(V2, bool),
@@ -22,8 +25,8 @@ enum ProtocolKind {
 #[derive(Debug)]
 /// Raw dynamixel communication messages controller (protocol v1 or v2)
 pub struct DynamixelProtocolHandler {
-    protocol: ProtocolKind,
-    post_delay: Option<Duration>,
+    pub(crate) protocol: ProtocolKind,
+    pub(crate) post_delay: Option<Duration>,
 }
 
 impl DynamixelProtocolHandler {
@@ -88,17 +91,6 @@ impl DynamixelProtocolHandler {
         }
     }
 
-    /// Sleep the configured post delay, if there is one.
-    ///
-    /// Called after every bus transaction, whether or not it succeeded: the delay is
-    /// there to leave a gap on the wire, and a transaction that timed out has used the
-    /// bus just the same -- an immediate retry is exactly the case it guards against.
-    fn sleep_post_delay(&self) {
-        if let Some(delay) = self.post_delay {
-            std::thread::sleep(delay);
-        }
-    }
-
     /// Make [DynamixelProtocolHandler::sync_read] use Fast Sync Read.
     ///
     /// Protocol v2 only, and needs firmware accepting instruction 0x8A (XL330: v46+).
@@ -143,6 +135,38 @@ impl DynamixelProtocolHandler {
         match self.protocol {
             ProtocolKind::V1(_) => v1::MAX_ID,
             ProtocolKind::V2(..) => v2::MAX_ID,
+        }
+    }
+
+    /// How long a broadcast ping listens at `baudrate`: the window the vendor SDKs use.
+    ///
+    /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
+    /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
+    /// can hold a short answer that long before passing it on.
+    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
+        let (status_size, max_id) = match self.protocol {
+            ProtocolKind::V1(_) => (6, v1::MAX_ID),
+            ProtocolKind::V2(..) => (14, v2::MAX_ID),
+        };
+        let max_id = u64::from(max_id);
+        let bits = status_size * max_id * 10;
+        Duration::from_micros(bits * 1_000_000 / u64::from(baudrate))
+            + Duration::from_millis(3 * max_id + 16)
+    }
+
+}
+
+/// The blocking API, over a [`Transport`].
+#[cfg(feature = "std")]
+impl DynamixelProtocolHandler {
+    /// Sleep the configured post delay, if there is one.
+    ///
+    /// Called after every bus transaction, whether or not it succeeded: the delay is
+    /// there to leave a gap on the wire, and a transaction that timed out has used the
+    /// bus just the same -- an immediate retry is exactly the case it guards against.
+    fn sleep_post_delay(&self) {
+        if let Some(delay) = self.post_delay {
+            std::thread::sleep(delay);
         }
     }
 
@@ -200,22 +224,6 @@ impl DynamixelProtocolHandler {
         serial_port.set_timeout(timeout)?;
         self.sleep_post_delay();
         ids
-    }
-
-    /// How long a broadcast ping listens at `baudrate`: the window the vendor SDKs use.
-    ///
-    /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
-    /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
-    /// can hold a short answer that long before passing it on.
-    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
-        let (status_size, max_id) = match self.protocol {
-            ProtocolKind::V1(_) => (6, v1::MAX_ID),
-            ProtocolKind::V2(..) => (14, v2::MAX_ID),
-        };
-        let max_id = u64::from(max_id);
-        let bits = status_size * max_id * 10;
-        Duration::from_micros(bits * 1_000_000 / u64::from(baudrate))
-            + Duration::from_millis(3 * max_id + 16)
     }
 
     /// Send a reboot instruction.
@@ -602,6 +610,7 @@ impl DynamixelProtocolHandler {
 /// The ids of the status packets in `bytes`. Anything that does not frame one (a stray
 /// byte, a packet cut short, a bad checksum) is skipped a byte at a time until the next
 /// header, so it costs that packet and not the ones after it.
+#[cfg(feature = "std")]
 fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
     let mut ids = Vec::new();
     let mut start = 0;
@@ -620,6 +629,7 @@ fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
     ids
 }
 
+#[cfg(feature = "std")]
 trait Protocol<P: Packet> {
     fn ping(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
         self.send_instruction_packet(port, P::ping_packet(id).as_ref())?;
@@ -871,10 +881,12 @@ trait Protocol<P: Packet> {
     }
 }
 
-use std::{
-    fmt, io,
-    time::{Duration, Instant},
-};
+use core::{fmt, time::Duration};
+#[cfg(feature = "std")]
+use std::{io, time::Instant};
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// The error field of a status packet.
 ///
@@ -955,7 +967,7 @@ impl fmt::Display for StatusPacketError {
     }
 }
 
-impl std::error::Error for StatusPacketError {}
+impl core::error::Error for StatusPacketError {}
 
 /// Dynamixel Communication Error
 #[derive(Debug, Clone, Copy)]
@@ -985,7 +997,7 @@ impl fmt::Display for CommunicationErrorKind {
         }
     }
 }
-impl std::error::Error for CommunicationErrorKind {}
+impl core::error::Error for CommunicationErrorKind {}
 
 /// A sync read that failed at one motor's answer: which motor, and why.
 ///
@@ -1006,13 +1018,13 @@ pub struct SyncReadError {
     /// The motor whose answer failed.
     pub id: u8,
     /// Why: a [CommunicationErrorKind], or the I/O error of the read.
-    pub cause: Box<dyn std::error::Error>,
+    pub cause: Box<dyn core::error::Error>,
 }
 
 impl SyncReadError {
     /// Boxed as the crate's errors are: as a `Box<Self>`, `?` would box it a second time and
     /// `downcast_ref` would no longer find it.
-    pub(crate) fn boxed(id: u8, cause: Box<dyn std::error::Error>) -> Box<dyn std::error::Error> {
+    pub(crate) fn boxed(id: u8, cause: Box<dyn core::error::Error>) -> Box<dyn core::error::Error> {
         Box::new(SyncReadError { id, cause })
     }
 }
@@ -1023,13 +1035,13 @@ impl fmt::Display for SyncReadError {
     }
 }
 
-impl std::error::Error for SyncReadError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for SyncReadError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         Some(self.cause.as_ref())
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::fake_port::FakePort;

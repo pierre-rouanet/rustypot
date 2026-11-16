@@ -2,6 +2,8 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/> for details.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::generate_servo;
 
 generate_servo!(

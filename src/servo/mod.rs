@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub mod conversion;
 pub mod definition;
 pub mod info;
@@ -15,8 +17,8 @@ pub use info::{encoding_for, Encoding, RegisterError, RegisterType, ServoInfo, W
 /// Every absent id costs one timeout, so a sweep at a port's usual timeout takes
 /// minutes. A Model Number read and its answer are under 320 bits on the wire; the
 /// floor leaves room for the motor's return delay and for USB scheduling.
-pub fn scan_timeout(baudrate: u32) -> std::time::Duration {
-    std::time::Duration::from_micros(u64::from(320_000_000 / baudrate).max(5_000))
+pub fn scan_timeout(baudrate: u32) -> core::time::Duration {
+    core::time::Duration::from_micros(u64::from(320_000_000 / baudrate).max(5_000))
 }
 
 /// Where a register exists in a servo's control table.
@@ -179,7 +181,7 @@ crate::register_servo!(
     )
 );
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{
         dynamixel::{mx, xl330, xl430},
@@ -303,7 +305,7 @@ mod tests {
     #[test]
     fn port_settings_reach_the_serial_port() {
         use crate::fake_port::FakePort;
-        use std::time::Duration;
+        use core::time::Duration;
 
         let port = FakePort::new(vec![]);
         let settings = port.settings();
@@ -466,7 +468,7 @@ mod tests {
     #[test]
     fn a_scan_reports_the_ids_that_answer_and_puts_the_timeout_back() {
         use crate::fake_port::FakePort;
-        use std::time::Duration;
+        use core::time::Duration;
 
         // Only motor 2 answers, with model number 777: bytes 9, 3 at address 3.
         let port = FakePort::new(vec![
@@ -481,7 +483,7 @@ mod tests {
 
         let found = c.scan(&[1, 2, 3]).unwrap();
 
-        assert_eq!(found, std::collections::BTreeMap::from([(2, 777)]));
+        assert_eq!(found, alloc::collections::BTreeMap::from([(2, 777)]));
         assert_eq!(
             settings.lock().unwrap().timeouts,
             [
@@ -535,7 +537,7 @@ mod tests {
 
         let found = c.broadcast_scan(&[1, 2, 3]).unwrap();
 
-        assert_eq!(found, std::collections::BTreeMap::from([(2, 777)]));
+        assert_eq!(found, alloc::collections::BTreeMap::from([(2, 777)]));
         // The ping, to the broadcast id, then one read.
         let written = written.lock().unwrap();
         assert_eq!(written.len(), 2);
@@ -572,7 +574,7 @@ mod tests {
 
     #[test]
     fn the_scan_timeout_follows_the_baud_rate_down_to_a_floor() {
-        use std::time::Duration;
+        use core::time::Duration;
 
         assert_eq!(super::scan_timeout(1_000_000), Duration::from_millis(5));
         assert_eq!(super::scan_timeout(115_200), Duration::from_millis(5));

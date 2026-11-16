@@ -4,6 +4,8 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xm430-w210> for example.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::device::*;
 
 reg_read_only!(model_number, 0, u16);
@@ -65,7 +67,7 @@ reg_read_only!(present_temperature, 146, u8);
 
 /// Unit conversion for XM motors
 pub mod conv {
-    use std::f32::consts::PI;
+    use core::f32::consts::PI;
 
     /// Dynamixel angular position to radians
     ///

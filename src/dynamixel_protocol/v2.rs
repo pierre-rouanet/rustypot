@@ -1,18 +1,26 @@
+#[cfg(feature = "std")]
 use std::io;
 
+#[cfg(feature = "std")]
 use crate::Transport;
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::Result;
 
+#[cfg(feature = "std")]
+use super::Protocol;
 use super::{
     packet::{InstructionPacket, Packet, StatusPacket},
-    CommunicationErrorKind, Protocol, SyncReadError,
+    CommunicationErrorKind, SyncReadError,
 };
 
 #[derive(Debug)]
 pub(crate) struct V2;
+#[cfg(feature = "std")]
 impl Protocol<PacketV2> for V2 {}
 
+#[cfg(feature = "std")]
 impl V2 {
     /// Fast Sync Read (instruction 0x8A).
     ///
@@ -57,7 +65,7 @@ impl V2 {
 
 impl PacketV2 {
     /// Same parameters as [`PacketV2::sync_read_packet`], only the instruction differs.
-    fn fast_sync_read_packet(
+    pub(crate) fn fast_sync_read_packet(
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -96,14 +104,14 @@ impl PacketV2 {
 /// the body with a fixed stride, i.e. it assumes motors do not insert stuffing bytes
 /// here. We do the same, but the per block CRC check above means a stuffed byte would
 /// be reported as a checksum error rather than silently shifting the data.
-fn parse_fast_sync_read_status(data: &[u8], ids: &[u8], length: u8) -> Result<Vec<Vec<u8>>> {
+pub(crate) fn parse_fast_sync_read_status(data: &[u8], ids: &[u8], length: u8) -> Result<Vec<Vec<u8>>> {
     Ok(parse_fast_sync_read_status_with_error(data, ids, length)?
         .into_iter()
         .map(|(values, _)| values)
         .collect())
 }
 
-fn parse_fast_sync_read_status_with_error(
+pub(crate) fn parse_fast_sync_read_status_with_error(
     data: &[u8],
     ids: &[u8],
     length: u8,
@@ -116,7 +124,7 @@ fn parse_fast_sync_read_status_with_error(
 
     // Every failure is pinned on the motor at that place in the packet, when there is one.
     // The header goes out with the first motor's block, so it is the first motor's.
-    let at = |i: usize, kind: CommunicationErrorKind| -> Box<dyn std::error::Error> {
+    let at = |i: usize, kind: CommunicationErrorKind| -> Box<dyn core::error::Error> {
         match ids.get(i) {
             Some(&id) => SyncReadError::boxed(id, Box::new(kind)),
             None => Box::new(kind),
@@ -173,6 +181,7 @@ fn parse_fast_sync_read_status_with_error(
 /// motor did not answer: the blocks come back in the order asked, so the packet stops at the
 /// first one missing. A timeout here is not an error but the end of the data; the parser
 /// finds where it ended. Any other I/O error is the port's, not a motor's, and is returned.
+#[cfg(feature = "std")]
 fn read_fast_sync_status_bytes(port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
     let mut data = read_until_timeout(port, PacketV2::HEADER_SIZE)?;
     if data.len() == PacketV2::HEADER_SIZE {
@@ -184,6 +193,7 @@ fn read_fast_sync_status_bytes(port: &mut (impl Transport + ?Sized)) -> Result<V
 }
 
 /// Up to `len` bytes, fewer if the port times out first.
+#[cfg(feature = "std")]
 fn read_until_timeout(port: &mut (impl Transport + ?Sized), len: usize) -> Result<Vec<u8>> {
     let mut data = vec![0u8; len];
     let mut filled = 0;

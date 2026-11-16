@@ -1,5 +1,7 @@
 //! Orbita 2DoF Serial SimpleFOC register (protocol v1)
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::generate_servo;
 
 /// Wrapper for a value per motor (A and B)

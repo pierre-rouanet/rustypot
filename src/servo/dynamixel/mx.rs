@@ -7,7 +7,9 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/mx/mx-28/> for example.
 
-use std::f64::consts::PI;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::f64::consts::PI;
 
 use crate::{generate_servo, servo::conversion::Conversion};
 
@@ -51,6 +53,7 @@ generate_servo!(
     reg: (goal_acceleration, rw, 73, u8, None),
 );
 
+#[cfg(feature = "std")]
 /// Sync read present_position, present_speed and present_load in one message
 ///
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))
@@ -170,7 +173,7 @@ pub mod conv {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
+    use core::f64::consts::PI;
 
     use crate::servo::{conversion::Conversion, dynamixel::mx::AnglePosition};
 

@@ -7,7 +7,9 @@
 //! [`RegisterInfo`](crate::servo::RegisterInfo), so they live next to the registers
 //! instead of being copied by every consumer.
 
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 use crate::servo::RegisterInfo;
 
@@ -196,7 +198,7 @@ impl fmt::Display for RegisterError {
     }
 }
 
-impl std::error::Error for RegisterError {}
+impl core::error::Error for RegisterError {}
 
 impl RegisterInfo {
     /// The bytes that write `value` to this register, in the servo's `order`.

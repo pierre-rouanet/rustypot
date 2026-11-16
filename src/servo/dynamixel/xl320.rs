@@ -2,6 +2,8 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xl320/> for details.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::generate_servo;
 
 generate_servo!(
@@ -40,6 +42,7 @@ generate_servo!(
     reg: (hardware_error_status, r, 50, u8, None),
     reg: (punch, rw, 51, u16, None),
 );
+#[cfg(feature = "std")]
 /// Sync read present_position, present_speed and present_load in one message
 ///
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))

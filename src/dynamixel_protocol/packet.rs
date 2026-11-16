@@ -1,5 +1,7 @@
-use std::fmt::Debug;
+use core::fmt::Debug;
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::Result;
 
 pub trait Packet {
@@ -42,7 +44,7 @@ pub trait InstructionPacket<P: Packet> {
 }
 
 impl<P: Packet> Debug for dyn InstructionPacket<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "InstructionPacket {{ id: {}, instruction: {:?}, params: {:?} }}",
@@ -72,7 +74,7 @@ pub trait StatusPacket<P: Packet> {
 }
 
 impl<P: Packet> Debug for dyn StatusPacket<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "StatusPacket {{ id: {}, errors: {:?}, params: {:?} }}",

@@ -9,6 +9,8 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/ax/ax-12a/> for example.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{generate_servo, servo::conversion::Conversion};
 
 generate_servo!(
@@ -48,6 +50,7 @@ generate_servo!(
     reg: (punch, rw, 48, u16, None),
 );
 
+#[cfg(feature = "std")]
 /// Sync read present_position, present_speed and present_load in one message
 ///
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))
@@ -90,7 +93,7 @@ impl Conversion for AnglePosition {
 pub mod conv {
 
     const RPM_PER_DXL_SPEED: f64 = 0.111;
-    const RPM_TO_RADS_FACTOR: f64 = 2.0 * std::f64::consts::PI / 60.0;
+    const RPM_TO_RADS_FACTOR: f64 = 2.0 * core::f64::consts::PI / 60.0;
 
     /// Dynamixel absolute speed to radians per second
     ///

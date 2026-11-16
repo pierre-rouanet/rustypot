@@ -15,18 +15,29 @@ macro_rules! generate_servo {
      $(reg: ($reg_name:ident, $reg_access:ident, $reg_addr:expr, $reg_type:ty, $conv:ident),)+
     ) => {
         paste::paste! {
+            /// Carries the model numbers of this servo, see [`DEFINITION`].
+            #[doc(hidden)]
+            pub struct [<$servo_name:camel Models>];
+
+            #[cfg(feature = "std")]
             pub struct [<$servo_name:camel Controller>] {
                 dph: Option<$crate::DynamixelProtocolHandler>,
                 serial_port: Option<Box<dyn $crate::Transport + Send>>,
             }
 
+            #[cfg(feature = "std")]
             impl Default for [<$servo_name:camel Controller>] {
                 fn default() -> Self {
                     Self::new()
                 }
             }
 
+            #[cfg(feature = "std")]
             impl [<$servo_name:camel Controller>] {
+                /// Model numbers of the servos this definition covers, by name.
+                pub const MODELS: &'static [(&'static str, u16)] =
+                    [<$servo_name:camel Models>]::MODELS;
+
                 pub fn new() -> Self {
                     Self {dph: None, serial_port: None}
                 }
@@ -57,7 +68,7 @@ macro_rules! generate_servo {
                 /// Give the open serial port a new read timeout.
                 ///
                 /// This bounds every transaction with a motor that does not answer.
-                pub fn set_timeout(&mut self, timeout: std::time::Duration) -> $crate::Result<()> {
+                pub fn set_timeout(&mut self, timeout: core::time::Duration) -> $crate::Result<()> {
                     Ok(self.serial_port.as_mut().unwrap().set_timeout(timeout)?)
                 }
             }
@@ -124,7 +135,7 @@ macro_rules! generate_servo {
                 /// This bounds every transaction with a motor that does not answer. A
                 /// negative, NaN or infinite timeout raises `ValueError`.
                 pub fn set_timeout(&self, timeout: f32) -> PyResult<()> {
-                    let timeout = std::time::Duration::try_from_secs_f32(timeout)
+                    let timeout = core::time::Duration::try_from_secs_f32(timeout)
                         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
                     let mut guard = self.0.lock().unwrap();
                     Self::borrow(&mut guard)
@@ -179,7 +190,7 @@ macro_rules! generate_servo {
                 /// Serial rates the servo can be set to, as {baud rate: register value},
                 /// slowest first.
                 #[staticmethod]
-                pub fn baudrates() -> std::collections::BTreeMap<u32, u8> {
+                pub fn baudrates() -> alloc::collections::BTreeMap<u32, u8> {
                     INFO.baudrates.iter().copied().collect()
                 }
 
@@ -253,7 +264,7 @@ macro_rules! generate_servo {
                 // Evaluated at compile time: a register type too large for the protocol's u8
                 // lengths fails the build here instead of being silently truncated.
                 size: {
-                    let size = std::mem::size_of::<$reg_type>();
+                    let size = core::mem::size_of::<$reg_type>();
                     assert!(size <= u8::MAX as usize, "register type is larger than 255 bytes");
                     size as u8
                 },
@@ -278,17 +289,23 @@ macro_rules! generate_servo {
                 protocol: $crate::protocol_version!($protocol),
                 info: INFO,
                 registers: REGISTERS,
-                models: [<$servo_name:camel Controller>]::MODELS,
+                models: [<$servo_name:camel Models>]::MODELS,
             };
         }
 
+        #[cfg(feature = "std")]
         $crate::generate_protocol_constructor!($servo_name, $protocol);
+        #[cfg(feature = "std")]
         $crate::generate_special_instructions!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_addr_read_write!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_register_access!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_scan!($servo_name);
 
         $(
+            #[cfg(feature = "std")]
             $crate::generate_reg_access!($servo_name, $reg_name, $reg_access, $reg_addr, $reg_type, $conv);
         )*
     };
@@ -315,7 +332,7 @@ macro_rules! generate_protocol_constructor {
                 #[new]
                 pub fn new(serial_port: &str, baudrate: u32, timeout: f32) -> PyResult<Self> {
                     let serial_port = serialport::new(serial_port, baudrate)
-                        .timeout(std::time::Duration::from_secs_f32(timeout))
+                        .timeout(core::time::Duration::from_secs_f32(timeout))
                         .open()
                         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
@@ -383,7 +400,7 @@ macro_rules! generate_protocol_constructor {
                 #[new]
                 pub fn new(serial_port: &str, baudrate: u32, timeout: f32) -> PyResult<Self> {
                     let serial_port = serialport::new(serial_port, baudrate)
-                        .timeout(std::time::Duration::from_secs_f32(timeout))
+                        .timeout(core::time::Duration::from_secs_f32(timeout))
                         .open()
                         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
@@ -991,14 +1008,14 @@ macro_rules! generate_scan {
                 /// sized to the baud rate, see [`scan_timeout`](crate::servo::scan_timeout),
                 /// and puts the port's timeout back afterwards. An id that answers with
                 /// anything the protocol cannot parse counts as absent.
-                pub fn scan(&mut self, ids: &[u8]) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn scan(&mut self, ids: &[u8]) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let (dph, port) = self.wire();
                     DEFINITION.scan(dph, port, ids)
                 }
 
                 /// [`scan`](Self::scan) every id the protocol allows, from 0 to
                 /// [`max_id`](crate::DynamixelProtocolHandler::max_id).
-                pub fn scan_all(&mut self) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn scan_all(&mut self) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let ids: Vec<u8> = (0..=self.dph.as_ref().unwrap().max_id()).collect();
                     self.scan(&ids)
                 }
@@ -1006,13 +1023,13 @@ macro_rules! generate_scan {
                 /// Which of `ids` answer, with their model number: one broadcast ping,
                 /// then a read of each id asked that answered. See
                 /// [`ServoDefinition::broadcast_scan`](crate::servo::ServoDefinition::broadcast_scan).
-                pub fn broadcast_scan(&mut self, ids: &[u8]) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn broadcast_scan(&mut self, ids: &[u8]) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let (dph, port) = self.wire();
                     DEFINITION.broadcast_scan(dph, port, ids)
                 }
 
                 /// [`broadcast_scan`](Self::broadcast_scan) every id the protocol allows.
-                pub fn broadcast_scan_all(&mut self) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn broadcast_scan_all(&mut self) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let ids: Vec<u8> = (0..=self.dph.as_ref().unwrap().max_id()).collect();
                     self.broadcast_scan(&ids)
                 }
@@ -1033,7 +1050,7 @@ macro_rules! generate_scan {
                     &self,
                     py: Python,
                     ids: Option<Vec<u8>>,
-                ) -> PyResult<std::collections::BTreeMap<u8, u16>> {
+                ) -> PyResult<alloc::collections::BTreeMap<u8, u16>> {
                     self.by_name(py, |c| match &ids {
                         Some(ids) => c.scan(ids),
                         None => c.scan_all(),
@@ -1053,7 +1070,7 @@ macro_rules! generate_scan {
                     &self,
                     py: Python,
                     ids: Option<Vec<u8>>,
-                ) -> PyResult<std::collections::BTreeMap<u8, u16>> {
+                ) -> PyResult<alloc::collections::BTreeMap<u8, u16>> {
                     self.by_name(py, |c| match &ids {
                         Some(ids) => c.broadcast_scan(ids),
                         None => c.broadcast_scan_all(),
@@ -1892,7 +1909,7 @@ macro_rules! register_servo {
             }
 
             $(
-                impl $group::[<$servo:lower>]::[<$servo:camel Controller>] {
+                impl $group::[<$servo:lower>]::[<$servo:camel Models>] {
                     /// Model numbers of the servos this definition covers, by name.
                     pub const MODELS: &'static [(&'static str, u16)] = &[
                         $((stringify!($name), $model_number)),+
@@ -1948,7 +1965,7 @@ macro_rules! register_servo {
                     /// Model numbers of the servos this definition covers, as {name: number},
                     /// by name.
                     #[staticmethod]
-                    pub fn models() -> std::collections::BTreeMap<String, u16> {
+                    pub fn models() -> alloc::collections::BTreeMap<String, u16> {
                         $group::[<$servo:lower>]::[<$servo:camel Controller>]::MODELS
                             .iter()
                             .map(|&(name, number)| (name.to_string(), number))

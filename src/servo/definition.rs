@@ -6,12 +6,20 @@
 //! functions of each servo module, so the caller picks the definition and the handler
 //! motor by motor. [`crate::bus::Bus`] does that for a whole bus.
 
-use std::collections::BTreeMap;
+#[cfg(feature = "std")]
+use alloc::collections::BTreeMap;
 
+#[cfg(feature = "std")]
 use crate::Transport;
 
-use crate::servo::{scan_timeout, RegisterError, RegisterInfo, ServoInfo, WordOrder};
-use crate::{DynamixelErrorV1, DynamixelProtocolHandler, Result, StatusError, StatusPacketError};
+#[allow(unused_imports)]
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::servo::{scan_timeout, RegisterError, WordOrder};
+use crate::servo::{RegisterInfo, ServoInfo};
+#[cfg(feature = "std")]
+use crate::DynamixelProtocolHandler;
+use crate::{DynamixelErrorV1, Result, StatusError, StatusPacketError};
 
 /// A servo definition as a value: its name, the protocol it speaks, what it states
 /// about itself and its registers.
@@ -40,6 +48,41 @@ impl ServoDefinition {
         self.registers.iter().copied().find(|r| r.name == name)
     }
 
+    /// Whether `status`, the error field of an answer, says the servo refused the
+    /// instruction: an error number on protocol v2, an instruction, checksum or range error
+    /// on protocol v1, never on a servo whose status only reports alarms. The other bits are
+    /// conditions the motor reports while it carries the instruction out, as an overload or
+    /// the v2 alert bit.
+    pub fn refuses(&self, status: StatusError) -> bool {
+        if self.info.status_alarms_only {
+            false
+        } else if self.protocol == 2 {
+            status.v2_instruction_error() != 0
+        } else {
+            status.v1_conditions().iter().any(|condition| {
+                matches!(
+                    condition,
+                    DynamixelErrorV1::Instruction
+                        | DynamixelErrorV1::Checksum
+                        | DynamixelErrorV1::Range
+                )
+            })
+        }
+    }
+
+    /// `Ok` unless `status`, the answer of motor `id`, refuses the instruction.
+    pub(crate) fn check_status(&self, id: u8, status: StatusError) -> Result<()> {
+        if self.refuses(status) {
+            Err(Box::new(StatusPacketError { id, status }))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Register access by name over a blocking [`Transport`].
+#[cfg(feature = "std")]
+impl ServoDefinition {
     fn named(&self, name: &str) -> Result<RegisterInfo> {
         Ok(self
             .register(name)
@@ -312,42 +355,12 @@ impl ServoDefinition {
         )
     }
 
-    /// Whether `status`, the error field of an answer, says the servo refused the
-    /// instruction: an error number on protocol v2, an instruction, checksum or range error
-    /// on protocol v1, never on a servo whose status only reports alarms. The other bits are
-    /// conditions the motor reports while it carries the instruction out, as an overload or
-    /// the v2 alert bit.
-    pub fn refuses(&self, status: StatusError) -> bool {
-        if self.info.status_alarms_only {
-            false
-        } else if self.protocol == 2 {
-            status.v2_instruction_error() != 0
-        } else {
-            status.v1_conditions().iter().any(|condition| {
-                matches!(
-                    condition,
-                    DynamixelErrorV1::Instruction
-                        | DynamixelErrorV1::Checksum
-                        | DynamixelErrorV1::Range
-                )
-            })
-        }
-    }
-
-    /// `Ok` unless `status`, the answer of motor `id`, refuses the instruction.
-    pub(crate) fn check_status(&self, id: u8, status: StatusError) -> Result<()> {
-        if self.refuses(status) {
-            Err(Box::new(StatusPacketError { id, status }))
-        } else {
-            Ok(())
-        }
-    }
-
     fn motors(&self, ids: &[u8]) -> Vec<(u8, ServoDefinition)> {
         ids.iter().map(|&id| (id, *self)).collect()
     }
 }
 
+#[cfg(feature = "std")]
 /// Register `name` of each motor, which one instruction can only reach if it sits at the
 /// same address and size on all of them, through a handler of their protocol.
 fn resolve(
@@ -369,16 +382,19 @@ fn resolve(
     Ok(regs)
 }
 
+#[cfg(feature = "std")]
 fn answer_sync_read(motors: &[(u8, ServoDefinition)]) -> bool {
     motors
         .iter()
         .all(|(_, definition)| definition.info.supports_sync_read)
 }
 
+#[cfg(feature = "std")]
 fn ids(motors: &[(u8, ServoDefinition)]) -> Vec<u8> {
     motors.iter().map(|&(id, _)| id).collect()
 }
 
+#[cfg(feature = "std")]
 /// Sync read register `name` from `motors`, each an id with its own definition, in one
 /// instruction: the XL430 and XL330 of a Koch arm, say.
 ///
@@ -409,6 +425,7 @@ pub fn sync_read_register(
         .collect()
 }
 
+#[cfg(feature = "std")]
 /// Same as [`sync_read_register`], plus each motor's error field.
 pub fn sync_read_register_with_error(
     dph: &DynamixelProtocolHandler,
@@ -433,6 +450,7 @@ pub fn sync_read_register_with_error(
         .collect()
 }
 
+#[cfg(feature = "std")]
 /// Sync write `values` to register `name` of `motors`, one value per motor, in one
 /// instruction; each value is laid out through its motor's definition. The same rules
 /// as [`sync_read_register`] apply to the definitions.
@@ -449,6 +467,7 @@ pub fn sync_write_register(
     }
 }
 
+#[cfg(feature = "std")]
 /// A Sync Write ready to go: every check done and every value encoded, so sending it
 /// can only fail on the bus.
 pub(crate) struct SyncWrite {
@@ -457,6 +476,7 @@ pub(crate) struct SyncWrite {
     data: Vec<Vec<u8>>,
 }
 
+#[cfg(feature = "std")]
 impl SyncWrite {
     /// The Sync Write that puts `values` in register `name` of `motors`, or `None` when
     /// there is no motor. Fails with a [`RegisterError`], and sends nothing.
@@ -481,7 +501,7 @@ impl SyncWrite {
             .iter()
             .zip(values)
             .map(|(&(reg, order), &value)| reg.encode(order, value))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<core::result::Result<Vec<_>, _>>()?;
         Ok(Some(SyncWrite {
             ids: ids(motors),
             addr: first.addr,
@@ -498,6 +518,7 @@ impl SyncWrite {
     }
 }
 
+#[cfg(feature = "std")]
 /// Run `op`, and run it again up to `retries` more times while it fails on the bus.
 ///
 /// A timeout or a corrupted status packet is worth another try, and each attempt starts
@@ -639,7 +660,7 @@ impl ServoDefinition {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::fake_port::FakePort;
