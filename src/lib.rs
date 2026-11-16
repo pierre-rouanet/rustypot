@@ -96,6 +96,8 @@ pub mod servo;
 #[cfg(feature = "async")]
 pub mod asynch;
 mod dynamixel_protocol;
+mod link;
+pub use link::TransportError;
 #[cfg(feature = "std")]
 pub mod transport;
 #[cfg(feature = "std")]

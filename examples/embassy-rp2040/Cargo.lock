@@ -1228,7 +1228,12 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "log",
  "paste",
+ "rustypot-core",
 ]
+
+[[package]]
+name = "rustypot-core"
+version = "0.1.0"
 
 [[package]]
 name = "rustypot-embassy-rp2040"

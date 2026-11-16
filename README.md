@@ -99,7 +99,11 @@ motors.sync_write_torque_enable(&[1, 2], &[true, true]).await?;
 let positions = motors.sync_read_present_position(&[1, 2]).await?;
 ```
 
-[`examples/embassy-rp2040`](./examples/embassy-rp2040) is a complete program for a Raspberry Pi Pico. The async API does not cover broadcast ping, scanning or `Bus` yet; those stay with `std`.
+[`examples/embassy-rp2040`](./examples/embassy-rp2040) is a complete program for a Raspberry Pi Pico. `HalfDuplex` drives the direction pin of a half-duplex buffer. Everything but `Bus` is available in async.
+
+### Without a heap, or as a device: `rustypot-core`
+
+Every packet rustypot sends or reads goes through [`rustypot-core`](./rustypot-core), a separate crate with no heap, no IO and no dependencies. Use it directly on a microcontroller too small for an allocator, or to put a device of your own on a Dynamixel bus: its `device` module answers a Protocol 2.0 controller (Ping, Read, Write, Sync Write, Sync Read, Fast Sync Read...) from a control table, in about 3 KB of flash.
 
 ## Tools
 

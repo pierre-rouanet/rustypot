@@ -2,7 +2,8 @@
 //!
 //! It mirrors the blocking [`crate::DynamixelProtocolHandler`] call for call, as
 //! `async fn`s, and needs neither `std` nor a particular executor: it runs on embassy
-//! as well as on tokio. Each servo module has an `asynch` module on top of it with the
+//! as well as on tokio. Both APIs run the same exchanges, built on
+//! [`rustypot_core`]; the blocking one drives them over its serial port. Each servo module has an `asynch` module on top of it with the
 //! typed register functions and a controller, e.g.
 //! [`xl330::asynch`](crate::servo::dynamixel::xl330::asynch).
 //!
@@ -23,19 +24,14 @@
 pub mod definition;
 mod embedded;
 mod half_duplex;
-mod protocol;
-mod transport;
 
+pub use crate::link::{AsyncTransport, TransportError};
 pub use embedded::EmbeddedIoTransport;
 pub use half_duplex::HalfDuplex;
-pub use transport::{AsyncTransport, TransportError};
 
 use core::time::Duration;
 
-use crate::dynamixel_protocol::packet::Packet;
-use crate::dynamixel_protocol::v1::PacketV1;
-use crate::dynamixel_protocol::v2::PacketV2;
-use crate::dynamixel_protocol::{self, CommunicationErrorKind, ProtocolKind};
+use crate::dynamixel_protocol;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::{Result, StatusError};
@@ -44,8 +40,8 @@ use crate::{Result, StatusError};
 ///
 /// The async counterpart of [`crate::DynamixelProtocolHandler`]: the same settings,
 /// the same instructions, the same errors.
-#[derive(Debug)]
-pub struct DynamixelProtocolHandler(dynamixel_protocol::DynamixelProtocolHandler);
+#[derive(Debug, Clone)]
+pub struct DynamixelProtocolHandler(pub(crate) dynamixel_protocol::DynamixelProtocolHandler);
 
 impl DynamixelProtocolHandler {
     /// A protocol v1 handler.
@@ -98,18 +94,15 @@ impl DynamixelProtocolHandler {
         self.0.max_id()
     }
 
-    async fn post_delay(&self, port: &mut impl AsyncTransport) {
-        if let Some(delay) = self.0.post_delay {
-            port.delay(delay).await;
-        }
+    /// How long a broadcast ping listens at `baudrate`, see
+    /// [`crate::DynamixelProtocolHandler::broadcast_ping_window`].
+    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
+        self.0.broadcast_ping_window(baudrate)
     }
 
     /// Ping motor `id`: whether it answered.
     pub async fn ping(&self, port: &mut impl AsyncTransport, id: u8) -> Result<bool> {
-        match self.0.protocol {
-            ProtocolKind::V1(_) => protocol::ping::<PacketV1>(port, id).await,
-            ProtocolKind::V2(..) => protocol::ping::<PacketV2>(port, id).await,
-        }
+        self.0.ping_async(port, id).await
     }
 
     /// Ping every motor at once, and return the ids that answer.
@@ -124,26 +117,12 @@ impl DynamixelProtocolHandler {
         baudrate: u32,
     ) -> Result<Vec<u8>> {
         let window = self.broadcast_ping_window(baudrate);
-        let ids = match self.0.protocol {
-            ProtocolKind::V1(_) => protocol::broadcast_ping::<PacketV1>(port, window).await,
-            ProtocolKind::V2(..) => protocol::broadcast_ping::<PacketV2>(port, window).await,
-        };
-        self.post_delay(port).await;
-        ids
-    }
-
-    /// How long a broadcast ping listens at `baudrate`, see
-    /// [`crate::DynamixelProtocolHandler::broadcast_ping_window`].
-    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
-        self.0.broadcast_ping_window(baudrate)
+        self.0.broadcast_ping_async(port, window).await
     }
 
     /// Reboot motor `id`: whether it answered.
     pub async fn reboot(&self, port: &mut impl AsyncTransport, id: u8) -> Result<bool> {
-        match self.0.protocol {
-            ProtocolKind::V1(_) => protocol::reboot::<PacketV1>(port, id).await,
-            ProtocolKind::V2(..) => protocol::reboot::<PacketV2>(port, id).await,
-        }
+        self.0.reboot_async(port, id).await
     }
 
     /// Reset the control table of motor `id` to the factory values. Keeping the id
@@ -155,23 +134,9 @@ impl DynamixelProtocolHandler {
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
     ) -> Result<()> {
-        match self.0.protocol {
-            ProtocolKind::V1(_) => {
-                if conserve_id_only || conserve_id_and_baudrate {
-                    return Err(Box::new(CommunicationErrorKind::Unsupported));
-                }
-                protocol::factory_reset::<PacketV1>(port, id, false, false).await
-            }
-            ProtocolKind::V2(..) => {
-                protocol::factory_reset::<PacketV2>(
-                    port,
-                    id,
-                    conserve_id_only,
-                    conserve_id_and_baudrate,
-                )
-                .await
-            }
-        }
+        self.0
+            .factory_reset_async(port, id, conserve_id_only, conserve_id_and_baudrate)
+            .await
     }
 
     /// Read `length` raw bytes from register `addr` of motor `id`.
@@ -207,16 +172,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, StatusError)> {
-        let res = match self.0.protocol {
-            ProtocolKind::V1(_) => {
-                protocol::exchange(port, id, PacketV1::read_packet(id, addr, length)?).await
-            }
-            ProtocolKind::V2(..) => {
-                protocol::exchange(port, id, PacketV2::read_packet(id, addr, length)?).await
-            }
-        };
-        self.post_delay(port).await;
-        res.map(|(values, e)| (values, StatusError::new(e)))
+        self.0.read_with_error_async(port, id, addr, length).await
     }
 
     /// Same as [`write`](Self::write), and also returns the status packet's error field.
@@ -227,16 +183,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[u8],
     ) -> Result<StatusError> {
-        let res = match self.0.protocol {
-            ProtocolKind::V1(_) => {
-                protocol::exchange(port, id, PacketV1::write_packet(id, addr, data)?).await
-            }
-            ProtocolKind::V2(..) => {
-                protocol::exchange(port, id, PacketV2::write_packet(id, addr, data)?).await
-            }
-        };
-        self.post_delay(port).await;
-        res.map(|(_, e)| StatusError::new(e))
+        self.0.write_with_error_async(port, id, addr, data).await
     }
 
     /// Write raw bytes and return the parameters of the status packet (protocol v1 only,
@@ -248,15 +195,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
-        match self.0.protocol {
-            ProtocolKind::V1(_) => {
-                let res =
-                    protocol::exchange(port, id, PacketV1::write_packet(id, addr, data)?).await;
-                self.post_delay(port).await;
-                res.map(|(values, _)| values)
-            }
-            ProtocolKind::V2(..) => Err(Box::new(CommunicationErrorKind::Unsupported)),
-        }
+        self.0.write_fb_async(port, id, addr, data).await
     }
 
     /// Read `length` raw bytes from register `addr` of every motor of `ids`, in one
@@ -284,18 +223,9 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, StatusError)>> {
-        let res = match self.0.protocol {
-            ProtocolKind::V1(_) => protocol::sync_read::<PacketV1>(port, ids, addr, length).await,
-            ProtocolKind::V2(_, false) => {
-                protocol::sync_read::<PacketV2>(port, ids, addr, length).await
-            }
-            ProtocolKind::V2(_, true) => protocol::fast_sync_read(port, ids, addr, length).await,
-        };
-        self.post_delay(port).await;
-        Ok(res?
-            .into_iter()
-            .map(|(values, e)| (values, StatusError::new(e)))
-            .collect())
+        self.0
+            .sync_read_with_error_async(port, ids, addr, length)
+            .await
     }
 
     /// Same as [`sync_read`](Self::sync_read), always as a Fast Sync Read (instruction
@@ -307,14 +237,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
-        match self.0.protocol {
-            ProtocolKind::V1(_) => Err(Box::new(CommunicationErrorKind::Unsupported)),
-            ProtocolKind::V2(..) => {
-                let res = protocol::fast_sync_read(port, ids, addr, length).await;
-                self.post_delay(port).await;
-                Ok(res?.into_iter().map(|(values, _)| values).collect())
-            }
-        }
+        self.0.fast_sync_read_async(port, ids, addr, length).await
     }
 
     /// Write `data[i]` to register `addr` of motor `ids[i]`, in one instruction. No motor
@@ -326,16 +249,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
-        let res = match self.0.protocol {
-            ProtocolKind::V1(_) => {
-                protocol::send(port, PacketV1::sync_write_packet(ids, addr, data)?.as_ref()).await
-            }
-            ProtocolKind::V2(..) => {
-                protocol::send(port, PacketV2::sync_write_packet(ids, addr, data)?.as_ref()).await
-            }
-        };
-        self.post_delay(port).await;
-        res
+        self.0.sync_write_async(port, ids, addr, data).await
     }
 }
 

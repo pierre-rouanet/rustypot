@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use embassy_futures::block_on;
 
 use super::*;
-use crate::SyncReadError;
+use crate::{CommunicationErrorKind, SyncReadError};
 
 /// A link that replays canned answers: each write loads the next one, which then comes
 /// back a byte per read; an exhausted answer reads as `Ok(0)`, the end of the data.
@@ -62,9 +62,10 @@ impl AsyncTransport for Link {
     fn timeout(&self) -> Duration {
         self.timeout
     }
-    fn set_timeout(&mut self, timeout: Duration) {
+    fn set_timeout(&mut self, timeout: Duration) -> core::result::Result<(), TransportError> {
         self.timeouts.push(timeout);
         self.timeout = timeout;
+        Ok(())
     }
 }
 
@@ -285,7 +286,7 @@ mod embedded_io_transport {
         let mut link = EmbeddedIoTransport::new(port, delay, Duration::from_millis(10));
 
         let mut buf = [0u8; 8];
-        assert_eq!(run(link.read(&mut buf)), Ok(3));
+        assert_eq!(run(link.read(&mut buf)).unwrap(), 3);
         assert_eq!(buf[..3], [1, 2, 3]);
     }
 
@@ -302,7 +303,10 @@ mod embedded_io_transport {
         let mut link = EmbeddedIoTransport::new(port, delay, Duration::from_millis(10));
 
         let mut buf = [0u8; 8];
-        assert_eq!(run(link.read(&mut buf)), Err(TransportError::TimedOut));
+        assert!(matches!(
+            run(link.read(&mut buf)),
+            Err(TransportError::TimedOut)
+        ));
         let (_, delay) = link.into_inner();
         assert_eq!(delay.asked_us, [10_000]);
     }
@@ -319,8 +323,8 @@ mod embedded_io_transport {
         };
         let mut link = EmbeddedIoTransport::new(port, delay, Duration::from_millis(10));
 
-        assert_eq!(run(link.discard_input()), Ok(40));
-        assert_eq!(run(link.discard_input()), Ok(0));
+        assert_eq!(run(link.discard_input()).unwrap(), 40);
+        assert_eq!(run(link.discard_input()).unwrap(), 0);
         run(link.write_all(&[0xFF, 0xFF])).unwrap();
         let (port, _) = link.into_inner();
         assert_eq!(port.tx, [0xFF, 0xFF]);
@@ -393,7 +397,7 @@ mod embedded_io_transport {
         fn timeout(&self) -> Duration {
             self.inner.timeout()
         }
-        fn set_timeout(&mut self, timeout: Duration) {
+        fn set_timeout(&mut self, timeout: Duration) -> core::result::Result<(), TransportError> {
             self.inner.set_timeout(timeout)
         }
     }
@@ -676,7 +680,7 @@ mod half_duplex {
         fn timeout(&self) -> Duration {
             self.link.timeout()
         }
-        fn set_timeout(&mut self, timeout: Duration) {
+        fn set_timeout(&mut self, timeout: Duration) -> core::result::Result<(), TransportError> {
             self.link.set_timeout(timeout)
         }
     }

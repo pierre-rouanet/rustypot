@@ -232,6 +232,49 @@ mod tests {
     }
 
     #[test]
+    fn a_timeout_is_a_transport_error_and_an_os_error_its_source() {
+        let (mut link, _) = Link::new(vec![vec![]]);
+        let err = DynamixelProtocolHandler::v1()
+            .read(&mut link, 1, 56, 2)
+            .unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<crate::TransportError>(),
+            Some(crate::TransportError::TimedOut)
+        ));
+
+        struct Broken;
+        impl Transport for Broken {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("device unplugged"))
+            }
+            fn write_all(&mut self, _: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+            fn bytes_to_read(&mut self) -> io::Result<usize> {
+                Ok(0)
+            }
+            fn timeout(&self) -> Duration {
+                Duration::from_millis(10)
+            }
+            fn set_timeout(&mut self, _: Duration) -> io::Result<()> {
+                Ok(())
+            }
+            fn baud_rate(&self) -> io::Result<u32> {
+                Ok(1_000_000)
+            }
+            fn set_baud_rate(&mut self, _: u32) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let err = DynamixelProtocolHandler::v1()
+            .read(&mut Broken, 1, 56, 2)
+            .unwrap_err();
+        assert_eq!(err.to_string(), "device unplugged");
+        let source = err.source().and_then(|e| e.downcast_ref::<io::Error>());
+        assert!(source.is_some());
+    }
+
+    #[test]
     fn a_link_that_runs_dry_reads_as_a_motor_that_did_not_answer() {
         // The answer stops two bytes short: read_exact must give up, not spin.
         let short = PRESENT_POSITION_2048[..6].to_vec();

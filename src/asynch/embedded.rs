@@ -85,8 +85,9 @@ where
         self.timeout
     }
 
-    fn set_timeout(&mut self, timeout: Duration) {
+    fn set_timeout(&mut self, timeout: Duration) -> Result<(), TransportError> {
         self.timeout = timeout;
+        Ok(())
     }
 
     /// Everything that arrives until `window` closes, exactly: the read loop races the
