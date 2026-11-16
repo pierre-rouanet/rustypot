@@ -1,6 +1,9 @@
 use core::fmt;
 use core::time::Duration;
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Why an [`AsyncTransport`] operation failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {
@@ -30,8 +33,7 @@ impl<E: embedded_io::Error> From<E> for TransportError {
 /// A half-duplex byte link to a bus of servos, as `async fn`s.
 ///
 /// The async counterpart of the blocking [`Transport`](crate::Transport), slimmed to what
-/// the async handler uses: the link owns its timeout and its baud rate, set up when it is
-/// built. [`EmbeddedIoTransport`](super::EmbeddedIoTransport) implements it over any
+/// the async handler uses: the link owns its baud rate, set up when it is built. [`EmbeddedIoTransport`](super::EmbeddedIoTransport) implements it over any
 /// `embedded-io-async` serial port (an embassy UART, say) and an `embedded-hal-async`
 /// delay.
 ///
@@ -71,6 +73,38 @@ pub trait AsyncTransport {
 
     /// Wait `duration`: the handler's post delay, and the pause between flush retries.
     async fn delay(&mut self, duration: Duration);
+
+    /// How long [`read`](Self::read) waits for a byte.
+    fn timeout(&self) -> Duration;
+
+    /// Change how long [`read`](Self::read) waits for a byte. Scanning shortens it while
+    /// it sweeps absent ids, then puts it back.
+    fn set_timeout(&mut self, timeout: Duration);
+
+    /// Collect into `received` everything that arrives for `window`: the answers to a
+    /// broadcast ping.
+    ///
+    /// The default reads until the line has been quiet for `window`, which can run past
+    /// it while answers keep coming. A link with a clock should stop at `window` itself,
+    /// as [`EmbeddedIoTransport`](super::EmbeddedIoTransport) does.
+    async fn listen(
+        &mut self,
+        window: Duration,
+        received: &mut Vec<u8>,
+    ) -> Result<(), TransportError> {
+        let timeout = self.timeout();
+        self.set_timeout(window);
+        let mut chunk = [0u8; 64];
+        let res = loop {
+            match self.read(&mut chunk).await {
+                Ok(0) | Err(TransportError::TimedOut) => break Ok(()),
+                Ok(n) => received.extend_from_slice(&chunk[..n]),
+                Err(e) => break Err(e),
+            }
+        };
+        self.set_timeout(timeout);
+        res
+    }
 }
 
 impl<T: AsyncTransport + ?Sized> AsyncTransport for &mut T {
@@ -88,5 +122,18 @@ impl<T: AsyncTransport + ?Sized> AsyncTransport for &mut T {
     }
     async fn delay(&mut self, duration: Duration) {
         T::delay(self, duration).await
+    }
+    fn timeout(&self) -> Duration {
+        T::timeout(self)
+    }
+    fn set_timeout(&mut self, timeout: Duration) {
+        T::set_timeout(self, timeout)
+    }
+    async fn listen(
+        &mut self,
+        window: Duration,
+        received: &mut Vec<u8>,
+    ) -> Result<(), TransportError> {
+        T::listen(self, window, received).await
     }
 }

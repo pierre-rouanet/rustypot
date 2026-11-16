@@ -5,6 +5,8 @@ use embedded_hal_async::delay::DelayNs;
 use embedded_io_async::{Read, ReadReady, Write};
 
 use super::{AsyncTransport, TransportError};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// An [`AsyncTransport`] over an `embedded-io-async` serial port and an
 /// `embedded-hal-async` delay.
@@ -26,16 +28,6 @@ impl<T, D> EmbeddedIoTransport<T, D> {
     /// The link over `io`, waiting at most `timeout` for each read.
     pub fn new(io: T, delay: D, timeout: Duration) -> Self {
         Self { io, delay, timeout }
-    }
-
-    /// How long a read waits for a byte.
-    pub fn timeout(&self) -> Duration {
-        self.timeout
-    }
-
-    /// Change how long a read waits for a byte.
-    pub fn set_timeout(&mut self, timeout: Duration) {
-        self.timeout = timeout;
     }
 
     /// The serial port, e.g. to change its baud rate.
@@ -87,5 +79,37 @@ where
 
     async fn delay(&mut self, duration: Duration) {
         self.delay.delay_us(micros(duration)).await
+    }
+
+    fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
+    }
+
+    /// Everything that arrives until `window` closes, exactly: the read loop races the
+    /// delay. Bytes already read when the window closes are kept.
+    async fn listen(
+        &mut self,
+        window: Duration,
+        received: &mut Vec<u8>,
+    ) -> Result<(), TransportError> {
+        let io = &mut self.io;
+        let collect = async {
+            let mut chunk = [0u8; 64];
+            loop {
+                let n = io.read(&mut chunk).await?;
+                if n == 0 {
+                    return Ok::<(), TransportError>(());
+                }
+                received.extend_from_slice(&chunk[..n]);
+            }
+        };
+        match select(collect, self.delay.delay_us(micros(window))).await {
+            Either::First(res) => res,
+            Either::Second(()) => Ok(()),
+        }
     }
 }

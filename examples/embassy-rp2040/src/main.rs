@@ -10,7 +10,7 @@
 //! | GP2 | buffer direction: high to transmit |
 //!
 //! Boards that switch direction on their own (TX-driven enable) need no GP2: replace
-//! [`HalfDuplex`] by the `EmbeddedIoTransport` it wraps.
+//! `HalfDuplex` by the `EmbeddedIoTransport` it wraps.
 //!
 //! It pings the motors in `IDS`, turns their torque on, then moves each one back and forth
 //! by `SWING` radians around where it started, logging the positions over defmt.
@@ -34,7 +34,7 @@ use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_time::{Delay, Duration, Ticker};
 use embedded_alloc::LlffHeap as Heap;
-use rustypot::asynch::{AsyncTransport, EmbeddedIoTransport, TransportError};
+use rustypot::asynch::{EmbeddedIoTransport, HalfDuplex};
 use rustypot::servo::dynamixel::xl330;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -52,40 +52,6 @@ bind_interrupts!(struct Irqs {
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
-
-/// A link to the bus that drives the direction pin of a half-duplex buffer.
-///
-/// `flush` on an embassy-rp `BufferedUart` returns once its software buffer is empty,
-/// while the last bytes may still sit in the UART's FIFO: wait for the UART to go idle
-/// before handing the line back to the motors, or the end of the instruction is cut.
-struct HalfDuplex {
-    link: EmbeddedIoTransport<BufferedUart, Delay>,
-    dir: Output<'static>,
-}
-
-impl AsyncTransport for HalfDuplex {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, TransportError> {
-        self.link.read(buf).await
-    }
-
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), TransportError> {
-        self.dir.set_high();
-        let res = self.link.write_all(buf).await;
-        while self.link.io_mut().busy() {
-            embassy_futures::yield_now().await;
-        }
-        self.dir.set_low();
-        res
-    }
-
-    async fn discard_input(&mut self) -> Result<usize, TransportError> {
-        self.link.discard_input().await
-    }
-
-    async fn delay(&mut self, duration: CoreDuration) {
-        self.link.delay(duration).await
-    }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -111,10 +77,13 @@ async fn main(_spawner: Spawner) {
         RX_BUF.init([0; 256]),
         config,
     );
-    let link = HalfDuplex {
-        link: EmbeddedIoTransport::new(uart, Delay, CoreDuration::from_millis(10)),
-        dir: Output::new(p.PIN_2, Level::Low),
-    };
+    // `flush` on a `BufferedUart` returns once its software buffer is empty, while the
+    // last bytes may still be in the UART's FIFO: keep transmitting until it is idle.
+    let link = HalfDuplex::new(
+        EmbeddedIoTransport::new(uart, Delay, CoreDuration::from_millis(10)),
+        Output::new(p.PIN_2, Level::Low),
+    )
+    .with_tx_busy(|link| link.io_mut().busy());
 
     let mut motors = xl330::asynch::Xl330Controller::new(link);
 

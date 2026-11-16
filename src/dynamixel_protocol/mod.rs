@@ -2,8 +2,10 @@
 use crate::Transport;
 
 pub(crate) mod packet;
+#[cfg(any(feature = "std", feature = "async"))]
+use packet::Packet;
 #[cfg(feature = "std")]
-use packet::{InstructionPacket, Packet, StatusPacket};
+use packet::{InstructionPacket, StatusPacket};
 
 pub(crate) mod v1;
 pub use v1::DynamixelErrorV1;
@@ -143,7 +145,7 @@ impl DynamixelProtocolHandler {
     /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
     /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
     /// can hold a short answer that long before passing it on.
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "async"))]
     pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
         let (status_size, max_id) = match self.protocol {
             ProtocolKind::V1(_) => (6, v1::MAX_ID),
@@ -610,8 +612,8 @@ impl DynamixelProtocolHandler {
 /// The ids of the status packets in `bytes`. Anything that does not frame one (a stray
 /// byte, a packet cut short, a bad checksum) is skipped a byte at a time until the next
 /// header, so it costs that packet and not the ones after it.
-#[cfg(feature = "std")]
-fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
+#[cfg(any(feature = "std", feature = "async"))]
+pub(crate) fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
     let mut ids = Vec::new();
     let mut start = 0;
     while start + P::HEADER_SIZE <= bytes.len() {

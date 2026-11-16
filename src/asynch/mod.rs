@@ -6,9 +6,9 @@
 //! typed register functions and a controller, e.g.
 //! [`xl330::asynch`](crate::servo::dynamixel::xl330::asynch).
 //!
-//! What it leaves out, for now: broadcast ping and scanning (they need a clock to bound a
-//! listening window), and register access by name through a
-//! [`ServoDefinition`](crate::servo::ServoDefinition).
+//! Register access by name through a [`ServoDefinition`](crate::servo::ServoDefinition),
+//! scanning and motor setup live in [`definition`]. What stays blocking-only is
+//! [`Bus`](crate::bus::Bus).
 //!
 //! ```no_run
 //! # async fn demo(uart: impl rustypot::asynch::AsyncTransport) -> Result<(), Box<dyn core::error::Error>> {
@@ -20,11 +20,14 @@
 //! # Ok(()) }
 //! ```
 
+pub mod definition;
 mod embedded;
+mod half_duplex;
 mod protocol;
 mod transport;
 
 pub use embedded::EmbeddedIoTransport;
+pub use half_duplex::HalfDuplex;
 pub use transport::{AsyncTransport, TransportError};
 
 use core::time::Duration;
@@ -107,6 +110,32 @@ impl DynamixelProtocolHandler {
             ProtocolKind::V1(_) => protocol::ping::<PacketV1>(port, id).await,
             ProtocolKind::V2(..) => protocol::ping::<PacketV2>(port, id).await,
         }
+    }
+
+    /// Ping every motor at once, and return the ids that answer.
+    ///
+    /// Listens for [`broadcast_ping_window`](Self::broadcast_ping_window) at `baudrate`,
+    /// the bus speed, through [`AsyncTransport::listen`]. Only some firmwares answer:
+    /// protocol v2 Dynamixel and Feetech STS do; protocol v1 Dynamixel and Feetech SCS
+    /// stay silent, which reads as no motor at all.
+    pub async fn broadcast_ping(
+        &self,
+        port: &mut impl AsyncTransport,
+        baudrate: u32,
+    ) -> Result<Vec<u8>> {
+        let window = self.broadcast_ping_window(baudrate);
+        let ids = match self.0.protocol {
+            ProtocolKind::V1(_) => protocol::broadcast_ping::<PacketV1>(port, window).await,
+            ProtocolKind::V2(..) => protocol::broadcast_ping::<PacketV2>(port, window).await,
+        };
+        self.post_delay(port).await;
+        ids
+    }
+
+    /// How long a broadcast ping listens at `baudrate`, see
+    /// [`crate::DynamixelProtocolHandler::broadcast_ping_window`].
+    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
+        self.0.broadcast_ping_window(baudrate)
     }
 
     /// Reboot motor `id`: whether it answered.

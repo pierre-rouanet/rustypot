@@ -83,6 +83,18 @@ pub(super) async fn factory_reset<P: Packet>(
     exchange(port, id, packet).await.map(|_| ())
 }
 
+/// Ping every motor at once and listen for `window`: the ids whose status packet came
+/// back whole.
+pub(super) async fn broadcast_ping<P: Packet>(
+    port: &mut impl AsyncTransport,
+    window: Duration,
+) -> Result<Vec<u8>> {
+    send(port, P::ping_packet(P::BROADCAST_ID).as_ref()).await?;
+    let mut received = Vec::new();
+    port.listen(window, &mut received).await?;
+    Ok(crate::dynamixel_protocol::status_packet_ids::<P>(&received))
+}
+
 /// One status packet per motor, in the order of `ids`; a failure names its motor.
 pub(super) async fn sync_read<P: Packet>(
     port: &mut impl AsyncTransport,

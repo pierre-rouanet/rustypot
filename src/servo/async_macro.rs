@@ -153,6 +153,82 @@ macro_rules! generate_async_controller {
                     self.dph.sync_read_with_error(&mut self.transport, ids, addr, length).await
                 }
 
+                /// Read register `name` of motor `id` as an integer, decoded through
+                /// this servo's [`DEFINITION`](super::DEFINITION).
+                pub async fn read_register(&mut self, id: u8, name: &str) -> $crate::Result<i64> {
+                    $crate::asynch::definition::read_register(&super::DEFINITION, &self.dph, &mut self.transport, id, name).await
+                }
+
+                /// Same as [`read_register`](Self::read_register), plus the status packet's error field.
+                pub async fn read_register_with_error(
+                    &mut self,
+                    id: u8,
+                    name: &str,
+                ) -> $crate::Result<(i64, $crate::StatusError)> {
+                    $crate::asynch::definition::read_register_with_error(&super::DEFINITION, &self.dph, &mut self.transport, id, name).await
+                }
+
+                /// Write `value` to register `name` of motor `id`, laid out through this
+                /// servo's [`DEFINITION`](super::DEFINITION).
+                pub async fn write_register(&mut self, id: u8, name: &str, value: i64) -> $crate::Result<()> {
+                    $crate::asynch::definition::write_register(&super::DEFINITION, &self.dph, &mut self.transport, id, name, value).await
+                }
+
+                /// Same as [`write_register`](Self::write_register), plus the status packet's error field.
+                pub async fn write_register_with_error(
+                    &mut self,
+                    id: u8,
+                    name: &str,
+                    value: i64,
+                ) -> $crate::Result<$crate::StatusError> {
+                    $crate::asynch::definition::write_register_with_error(&super::DEFINITION, &self.dph, &mut self.transport, id, name, value).await
+                }
+
+                /// Sync read register `name` from `ids`, decoded like [`read_register`](Self::read_register).
+                pub async fn sync_read_register(&mut self, ids: &[u8], name: &str) -> $crate::Result<Vec<i64>> {
+                    $crate::asynch::definition::sync_read_register(&self.dph, &mut self.transport, &super::DEFINITION.motors(ids), name).await
+                }
+
+                /// Same as [`sync_read_register`](Self::sync_read_register), plus each motor's error field.
+                pub async fn sync_read_register_with_error(
+                    &mut self,
+                    ids: &[u8],
+                    name: &str,
+                ) -> $crate::Result<Vec<(i64, $crate::StatusError)>> {
+                    $crate::asynch::definition::sync_read_register_with_error(&self.dph, &mut self.transport, &super::DEFINITION.motors(ids), name).await
+                }
+
+                /// Sync write `values` to register `name` of `ids`, one value per id.
+                pub async fn sync_write_register(&mut self, ids: &[u8], name: &str, values: &[i64]) -> $crate::Result<()> {
+                    $crate::asynch::definition::sync_write_register(&self.dph, &mut self.transport, &super::DEFINITION.motors(ids), name, values).await
+                }
+
+                /// Ping every motor at once (`baudrate` is the bus speed): the ids that answer.
+                pub async fn broadcast_ping(&mut self, baudrate: u32) -> $crate::Result<Vec<u8>> {
+                    self.dph.broadcast_ping(&mut self.transport, baudrate).await
+                }
+
+                /// Which of `ids` answer, with their model number, one read per id; see
+                /// [`asynch::definition::scan`]($crate::asynch::definition::scan).
+                pub async fn scan(&mut self, ids: &[u8], baudrate: u32) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
+                    $crate::asynch::definition::scan(&super::DEFINITION, &self.dph, &mut self.transport, ids, baudrate).await
+                }
+
+                /// Which of `ids` answer, with their model number, from one broadcast ping.
+                pub async fn broadcast_scan(&mut self, ids: &[u8], baudrate: u32) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
+                    $crate::asynch::definition::broadcast_scan(&super::DEFINITION, &self.dph, &mut self.transport, ids, baudrate).await
+                }
+
+                /// Give motor `id` the id `new_id` (torque off and lock opened first).
+                pub async fn change_id(&mut self, id: u8, new_id: u8) -> $crate::Result<()> {
+                    $crate::asynch::definition::change_id(&super::DEFINITION, &self.dph, &mut self.transport, id, new_id).await
+                }
+
+                /// Set motor `id` to talk at `baudrate`; the link stays at the old rate.
+                pub async fn change_baudrate(&mut self, id: u8, baudrate: u32) -> $crate::Result<()> {
+                    $crate::asynch::definition::change_baudrate(&super::DEFINITION, &self.dph, &mut self.transport, id, baudrate).await
+                }
+
                 /// Write `data[i]` to address `addr` of motor `ids[i]`, in one instruction.
                 pub async fn sync_write_raw_data(
                     &mut self,

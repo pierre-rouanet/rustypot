@@ -15,8 +15,17 @@
   `AsyncTransport` trait, `EmbeddedIoTransport` (any `embedded-io-async` serial port and
   `embedded-hal-async` delay, e.g. an embassy UART) and an async
   `DynamixelProtocolHandler`; each servo module has an `asynch` module with async
-  per-register functions and a controller generic over its link. Broadcast ping,
-  scanning and `Bus` are not in it yet.
+  per-register functions and a controller generic over its link. `Bus` is not in it
+  yet.
+- Async: register access by name, scanning and motor setup in
+  `rustypot::asynch::definition` (`read_register`, `sync_read_register` over mixed
+  definitions, `scan`, `broadcast_scan`, `change_id`, `change_baudrate`...), and as methods
+  of the async controllers; `broadcast_ping` on the async handler. `AsyncTransport` gains
+  `timeout`, `set_timeout` and `listen` (the window of a broadcast ping, exact on
+  `EmbeddedIoTransport`).
+- Async: `HalfDuplex` drives the direction pin of a half-duplex buffer (any
+  `embedded-hal` `OutputPin`) around each write, and with `with_tx_busy` keeps it until
+  the UART is done sending.
 - `examples/embassy-rp2040`: XL330 motors driven from a Raspberry Pi Pico, built in CI.
 - **Breaking:** register addresses are `u16` everywhere (`RegisterInfo::addr`, the
   handlers, the controllers' `*_raw_data`), so protocol v2 reaches the whole control table

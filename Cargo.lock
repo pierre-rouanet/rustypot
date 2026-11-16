@@ -986,6 +986,7 @@ version = "1.13.1"
 dependencies = [
  "clap",
  "embassy-futures",
+ "embedded-hal",
  "embedded-hal-async",
  "embedded-io",
  "embedded-io-async",

@@ -19,7 +19,7 @@ through a 3.3 V half-duplex buffer (e.g. a 74LVC2G241):
 The motors need their own supply (5 V for an XL330).
 
 Boards that switch direction from the TX line on their own need no GP2: use the
-`EmbeddedIoTransport` directly instead of the `HalfDuplex` wrapper in `main.rs`.
+`EmbeddedIoTransport` directly instead of wrapping it in `HalfDuplex`.
 
 ## Settings
 
@@ -46,6 +46,7 @@ cargo run --release
 ## Half-duplex turnaround
 
 `flush` on an embassy-rp `BufferedUart` returns once its software buffer is empty,
-while the last bytes may still be in the UART's hardware FIFO. `HalfDuplex` waits for
-the UART to go idle before switching the buffer back to receive; without that, the end
-of each instruction is cut off and the motors never answer.
+while the last bytes may still be in the UART's hardware FIFO. rustypot's `HalfDuplex`
+is given `BufferedUart::busy` (`with_tx_busy`), so it keeps transmitting until the UART
+is idle before switching the buffer back to receive; without that, the end of each
+instruction is cut off and the motors never answer.

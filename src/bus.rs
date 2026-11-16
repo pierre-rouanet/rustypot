@@ -188,7 +188,9 @@ impl Bus {
                 .map(|&(position, _)| values[position])
                 .collect();
             let dph = &self.handlers[protocol as usize - 1];
-            if let Some(write) = SyncWrite::encode(dph, &motors, name, &group_values)? {
+            if let Some(write) =
+                SyncWrite::encode(dph.protocol_version(), &motors, name, &group_values)?
+            {
                 writes.push((dph, write));
             }
         }
