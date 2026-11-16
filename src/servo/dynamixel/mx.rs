@@ -65,14 +65,15 @@ pub fn sync_read_present_position_speed_load(
     let val = dph.sync_read(serial_port, ids, 36, 2 + 2 + 2)?;
     let val = val
         .iter()
-        .map(|v| {
-            (
-                i16::from_le_bytes(v[0..2].try_into().unwrap()),
-                u16::from_le_bytes(v[2..4].try_into().unwrap()),
-                u16::from_le_bytes(v[4..6].try_into().unwrap()),
-            )
+        .map(|v| match v[..] {
+            [p0, p1, s0, s1, l0, l1] => Ok((
+                i16::from_le_bytes([p0, p1]),
+                u16::from_le_bytes([s0, s1]),
+                u16::from_le_bytes([l0, l1]),
+            )),
+            _ => Err(crate::CommunicationErrorKind::ParsingError),
         })
-        .collect();
+        .collect::<core::result::Result<_, _>>()?;
 
     Ok(val)
 }

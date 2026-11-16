@@ -626,3 +626,37 @@ mod tests {
         assert!(ServoKind::try_from(1280).is_err());
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod wrong_size_answers {
+    use crate::fake_port::FakePort;
+    use crate::servo::dynamixel::mx;
+    use crate::servo::feetech::sts3215;
+    use crate::{CommunicationErrorKind, DynamixelProtocolHandler};
+
+    /// Motor 1 answers with a single byte of parameters.
+    const ONE_BYTE: [u8; 7] = [0xFF, 0xFF, 0x01, 0x03, 0x00, 0x08, 0xF3];
+
+    #[test]
+    fn a_register_answer_of_the_wrong_size_is_an_error_not_a_panic() {
+        let mut c = sts3215::Sts3215Controller::new()
+            .with_serial_port(Box::new(FakePort::new(vec![ONE_BYTE.to_vec()])))
+            .with_protocol_v1();
+        let err = c.read_raw_present_position(1).unwrap_err();
+        assert!(err.is::<CommunicationErrorKind>(), "{err}");
+
+        let mut c = sts3215::Sts3215Controller::new()
+            .with_serial_port(Box::new(FakePort::new(vec![ONE_BYTE.to_vec()])))
+            .with_protocol_v1();
+        let err = c.sync_read_raw_present_position(&[1]).unwrap_err();
+        assert!(err.is::<CommunicationErrorKind>(), "{err}");
+    }
+
+    #[test]
+    fn a_short_position_speed_load_answer_is_an_error_not_a_panic() {
+        let dph = DynamixelProtocolHandler::v1();
+        let mut port = FakePort::new(vec![ONE_BYTE.to_vec()]);
+        let err = mx::sync_read_present_position_speed_load(&dph, &mut port, &[1]).unwrap_err();
+        assert!(err.is::<CommunicationErrorKind>(), "{err}");
+    }
+}

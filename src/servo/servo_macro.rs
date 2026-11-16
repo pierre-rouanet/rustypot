@@ -1221,7 +1221,7 @@ macro_rules! generate_reg_read {
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
-                let val = $reg_type::from_le_bytes(val.try_into().unwrap());
+                let val = $reg_type::from_le_bytes(val.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
 
                 Ok(val)
             }
@@ -1235,8 +1235,13 @@ macro_rules! generate_reg_read {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
                 let val = val
                     .iter()
-                    .map(|v| $reg_type::from_le_bytes(v.as_slice().try_into().unwrap()))
-                    .collect();
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map($reg_type::from_le_bytes)
+                            .map_err(|_| $crate::CommunicationErrorKind::ParsingError)
+                    })
+                    .collect::<core::result::Result<_, _>>()?;
 
                 Ok(val)
             }
@@ -1339,7 +1344,7 @@ macro_rules! generate_reg_read {
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
-                let val = $reg_type::from_le_bytes(val.try_into().unwrap());
+                let val = $reg_type::from_le_bytes(val.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
 
                 Ok(val)
             }
@@ -1364,8 +1369,13 @@ macro_rules! generate_reg_read {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
                 let val = val
                     .iter()
-                    .map(|v| $reg_type::from_le_bytes(v.as_slice().try_into().unwrap()))
-                    .collect();
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map($reg_type::from_le_bytes)
+                            .map_err(|_| $crate::CommunicationErrorKind::ParsingError)
+                    })
+                    .collect::<core::result::Result<_, _>>()?;
 
                 Ok(val)
             }
@@ -1861,7 +1871,7 @@ macro_rules! generate_reg_write_fb {
                 val: $reg_type,
             ) -> $crate::Result<$fb_type> {
                 let fb = dph.write_fb(serial_port, id, $addr, &val.to_le_bytes())?;
-                let fb = $fb_type::from_le_bytes(fb.try_into().unwrap());
+                let fb = $fb_type::from_le_bytes(fb.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
                 Ok(fb)
             }
 
