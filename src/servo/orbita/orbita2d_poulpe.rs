@@ -1,6 +1,6 @@
+use crate::generate_servo;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::generate_servo;
 
 /// Wrapper for a value per motor (A and B)
 #[derive(Clone, Copy, Debug)]

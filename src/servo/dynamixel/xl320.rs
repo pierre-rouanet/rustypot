@@ -2,9 +2,9 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xl320/> for details.
 
+use crate::generate_servo;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::generate_servo;
 
 generate_servo!(
     XL320, v2,

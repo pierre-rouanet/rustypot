@@ -4,6 +4,8 @@ pub mod conversion;
 pub mod definition;
 pub mod info;
 
+#[cfg(feature = "async")]
+pub(crate) mod async_macro;
 pub mod dynamixel;
 pub mod feetech;
 pub mod orbita;

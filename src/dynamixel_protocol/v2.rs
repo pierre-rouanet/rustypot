@@ -104,7 +104,12 @@ impl PacketV2 {
 /// the body with a fixed stride, i.e. it assumes motors do not insert stuffing bytes
 /// here. We do the same, but the per block CRC check above means a stuffed byte would
 /// be reported as a checksum error rather than silently shifting the data.
-pub(crate) fn parse_fast_sync_read_status(data: &[u8], ids: &[u8], length: u8) -> Result<Vec<Vec<u8>>> {
+#[cfg(feature = "std")]
+pub(crate) fn parse_fast_sync_read_status(
+    data: &[u8],
+    ids: &[u8],
+    length: u8,
+) -> Result<Vec<Vec<u8>>> {
     Ok(parse_fast_sync_read_status_with_error(data, ids, length)?
         .into_iter()
         .map(|(values, _)| values)

@@ -19,7 +19,9 @@ use crate::servo::{scan_timeout, RegisterError, WordOrder};
 use crate::servo::{RegisterInfo, ServoInfo};
 #[cfg(feature = "std")]
 use crate::DynamixelProtocolHandler;
-use crate::{DynamixelErrorV1, Result, StatusError, StatusPacketError};
+use crate::{DynamixelErrorV1, StatusError};
+#[cfg(feature = "std")]
+use crate::{Result, StatusPacketError};
 
 /// A servo definition as a value: its name, the protocol it speaks, what it states
 /// about itself and its registers.
@@ -71,6 +73,7 @@ impl ServoDefinition {
     }
 
     /// `Ok` unless `status`, the answer of motor `id`, refuses the instruction.
+    #[cfg(feature = "std")]
     pub(crate) fn check_status(&self, id: u8, status: StatusError) -> Result<()> {
         if self.refuses(status) {
             Err(Box::new(StatusPacketError { id, status }))

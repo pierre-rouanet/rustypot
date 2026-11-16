@@ -1,8 +1,10 @@
 //! Orbita 3Dof Poulpe version
 
+#[cfg(feature = "std")]
+use crate::generate_reg_write_fb;
+use crate::generate_servo;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::{generate_reg_write_fb, generate_servo};
 
 /// Wrapper for a value per motor
 #[derive(Clone, Copy, Debug)]

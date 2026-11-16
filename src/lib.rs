@@ -102,9 +102,10 @@ pub mod transport;
 pub use transport::Transport;
 #[cfg(test)]
 mod fake_port;
+#[cfg(feature = "std")]
+pub use dynamixel_protocol::DynamixelProtocolHandler;
 pub use dynamixel_protocol::{
-    CommunicationErrorKind, DynamixelErrorV1, DynamixelProtocolHandler, StatusError,
-    StatusPacketError, SyncReadError,
+    CommunicationErrorKind, DynamixelErrorV1, StatusError, StatusPacketError, SyncReadError,
 };
 
 type Result<T> = core::result::Result<T, alloc::boxed::Box<dyn core::error::Error>>;

@@ -308,6 +308,12 @@ macro_rules! generate_servo {
             #[cfg(feature = "std")]
             $crate::generate_reg_access!($servo_name, $reg_name, $reg_access, $reg_addr, $reg_type, $conv);
         )*
+
+        #[cfg(feature = "async")]
+        $crate::generate_servo_async!(
+            $servo_name, $protocol,
+            $(($reg_name, $reg_access, $reg_addr, $reg_type, $conv)),+
+        );
     };
 }
 

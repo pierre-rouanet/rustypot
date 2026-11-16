@@ -143,6 +143,7 @@ impl DynamixelProtocolHandler {
     /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
     /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
     /// can hold a short answer that long before passing it on.
+    #[cfg(feature = "std")]
     pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
         let (status_size, max_id) = match self.protocol {
             ProtocolKind::V1(_) => (6, v1::MAX_ID),
@@ -153,7 +154,6 @@ impl DynamixelProtocolHandler {
         Duration::from_micros(bits * 1_000_000 / u64::from(baudrate))
             + Duration::from_millis(3 * max_id + 16)
     }
-
 }
 
 /// The blocking API, over a [`Transport`].
