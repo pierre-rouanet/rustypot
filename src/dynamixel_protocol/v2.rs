@@ -1,18 +1,26 @@
+#[cfg(feature = "std")]
 use std::io;
 
-use serialport::SerialPort;
+#[cfg(feature = "std")]
+use crate::Transport;
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::Result;
 
+#[cfg(feature = "std")]
+use super::Protocol;
 use super::{
     packet::{InstructionPacket, Packet, StatusPacket},
-    CommunicationErrorKind, Protocol, SyncReadError,
+    CommunicationErrorKind, SyncReadError,
 };
 
 #[derive(Debug)]
 pub(crate) struct V2;
+#[cfg(feature = "std")]
 impl Protocol<PacketV2> for V2 {}
 
+#[cfg(feature = "std")]
 impl V2 {
     /// Fast Sync Read (instruction 0x8A).
     ///
@@ -25,9 +33,9 @@ impl V2 {
     /// firmware does not answer and the read times out.
     pub(crate) fn fast_sync_read(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         self.send_instruction_packet(
@@ -41,9 +49,9 @@ impl V2 {
     /// Same as [`V2::fast_sync_read`], and also returns each motor's error byte.
     pub(crate) fn fast_sync_read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, u8)>> {
         self.send_instruction_packet(
@@ -57,9 +65,9 @@ impl V2 {
 
 impl PacketV2 {
     /// Same parameters as [`PacketV2::sync_read_packet`], only the instruction differs.
-    fn fast_sync_read_packet(
+    pub(crate) fn fast_sync_read_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Box<dyn InstructionPacket<PacketV2>> {
         Box::new(InstructionPacketV2 {
@@ -67,7 +75,7 @@ impl PacketV2 {
             instruction: InstructionKindV2::FastSyncRead,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params.extend(ids);
                 params
@@ -96,14 +104,19 @@ impl PacketV2 {
 /// the body with a fixed stride, i.e. it assumes motors do not insert stuffing bytes
 /// here. We do the same, but the per block CRC check above means a stuffed byte would
 /// be reported as a checksum error rather than silently shifting the data.
-fn parse_fast_sync_read_status(data: &[u8], ids: &[u8], length: u8) -> Result<Vec<Vec<u8>>> {
+#[cfg(feature = "std")]
+pub(crate) fn parse_fast_sync_read_status(
+    data: &[u8],
+    ids: &[u8],
+    length: u8,
+) -> Result<Vec<Vec<u8>>> {
     Ok(parse_fast_sync_read_status_with_error(data, ids, length)?
         .into_iter()
         .map(|(values, _)| values)
         .collect())
 }
 
-fn parse_fast_sync_read_status_with_error(
+pub(crate) fn parse_fast_sync_read_status_with_error(
     data: &[u8],
     ids: &[u8],
     length: u8,
@@ -116,7 +129,7 @@ fn parse_fast_sync_read_status_with_error(
 
     // Every failure is pinned on the motor at that place in the packet, when there is one.
     // The header goes out with the first motor's block, so it is the first motor's.
-    let at = |i: usize, kind: CommunicationErrorKind| -> Box<dyn std::error::Error> {
+    let at = |i: usize, kind: CommunicationErrorKind| -> Box<dyn core::error::Error> {
         match ids.get(i) {
             Some(&id) => SyncReadError::boxed(id, Box::new(kind)),
             None => Box::new(kind),
@@ -173,7 +186,8 @@ fn parse_fast_sync_read_status_with_error(
 /// motor did not answer: the blocks come back in the order asked, so the packet stops at the
 /// first one missing. A timeout here is not an error but the end of the data; the parser
 /// finds where it ended. Any other I/O error is the port's, not a motor's, and is returned.
-fn read_fast_sync_status_bytes(port: &mut dyn SerialPort) -> Result<Vec<u8>> {
+#[cfg(feature = "std")]
+fn read_fast_sync_status_bytes(port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
     let mut data = read_until_timeout(port, PacketV2::HEADER_SIZE)?;
     if data.len() == PacketV2::HEADER_SIZE {
         if let Ok(payload_size) = PacketV2::get_payload_size(&data) {
@@ -184,7 +198,8 @@ fn read_fast_sync_status_bytes(port: &mut dyn SerialPort) -> Result<Vec<u8>> {
 }
 
 /// Up to `len` bytes, fewer if the port times out first.
-fn read_until_timeout(port: &mut dyn SerialPort, len: usize) -> Result<Vec<u8>> {
+#[cfg(feature = "std")]
+fn read_until_timeout(port: &mut (impl Transport + ?Sized), len: usize) -> Result<Vec<u8>> {
     let mut data = vec![0u8; len];
     let mut filled = 0;
     while filled < len {
@@ -260,57 +275,61 @@ impl Packet for PacketV2 {
         })
     }
 
-    fn read_packet(id: u8, addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn read_packet(id: u8, addr: u16, length: u8) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id,
             instruction: InstructionKindV2::Read,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params
             },
-        })
+        }))
     }
 
-    fn write_packet(id: u8, addr: u8, data: &[u8]) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn write_packet(id: u8, addr: u16, data: &[u8]) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id,
             instruction: InstructionKindV2::Write,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend(data);
                 params
             },
-        })
+        }))
     }
 
-    fn sync_read_packet(ids: &[u8], addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn sync_read_packet(
+        ids: &[u8],
+        addr: u16,
+        length: u8,
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id: BROADCAST_ID,
             instruction: InstructionKindV2::SyncRead,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params.extend(ids);
                 params
             },
-        })
+        }))
     }
 
     fn sync_write_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
-    ) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id: BROADCAST_ID,
             instruction: InstructionKindV2::SyncWrite,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((data[0].len() as u16).to_le_bytes());
 
                 for (&id, value) in ids.iter().zip(data) {
@@ -320,7 +339,7 @@ impl Packet for PacketV2 {
 
                 params
             },
-        })
+        }))
     }
 
     fn status_packet(data: &[u8], sender_id: u8) -> Result<Box<dyn StatusPacket<Self>>> {
@@ -637,7 +656,7 @@ mod tests {
 
     #[test]
     fn create_read_packet() {
-        let p = PacketV2::read_packet(1, 0x2B, 2);
+        let p = PacketV2::read_packet(1, 0x2B, 2).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -647,7 +666,7 @@ mod tests {
 
     #[test]
     fn create_write_packet() {
-        let p = PacketV2::write_packet(1, 116, &512_u32.to_le_bytes());
+        let p = PacketV2::write_packet(1, 116, &512_u32.to_le_bytes()).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -660,7 +679,7 @@ mod tests {
 
     #[test]
     fn create_sync_read_packet() {
-        let p = PacketV2::sync_read_packet(&[1, 2], 132, 4);
+        let p = PacketV2::sync_read_packet(&[1, 2], 132, 4).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -680,7 +699,8 @@ mod tests {
                 150_u32.to_le_bytes().to_vec(),
                 170_u32.to_le_bytes().to_vec(),
             ],
-        );
+        )
+        .unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -739,7 +759,7 @@ mod tests {
     fn create_write_packet_with_stuffing() {
         // Data containing FF FF FD must be stuffed on the wire and the length
         // field must count the extra byte (7 params -> nb_params = 10).
-        let p = PacketV2::write_packet(1, 116, &[0xFF, 0xFF, 0xFD, 0x00]);
+        let p = PacketV2::write_packet(1, 116, &[0xFF, 0xFF, 0xFD, 0x00]).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(bytes[5..7], [0x0A, 0x00]);
         assert_eq!(

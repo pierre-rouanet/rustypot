@@ -2,11 +2,13 @@
 //!
 //! ## Feature Overview
 //!
-//! * Relies on [serialport] for serial communication
+//! * Relies on [serialport] for serial communication, or on any link implementing [`Transport`]
 //! * Support for dynamixel protocol v1 and v2 (both can be used on the same io)
 //! * Support for sync read and sync write operations, plus fast sync read (protocol v2)
 //! * Easy support for new type of motors (register definition through macros)
 //! * Pure Rust
+//! * `no_std` (with `alloc`) when the default `std` feature is off, with an async API
+//!   (feature `async`) that runs on embassy
 //!
 //! ## APIs
 //!
@@ -14,6 +16,11 @@
 //! * `DynamixelProtocolHandler`: low-level API. It handles the serial communication and the Dynamixel protocol parsing. It can be used for fine-grained control of the shared bus with other communication.
 //! * `Controller`: one per servo model, with a typed accessor for each register. Simpler and cleaner API but it takes full ownership of the io (it can still be shared if wrapped with a mutex for instance).
 //! * [`bus::Bus`] and [`servo::ServoDefinition`]: a higher-level, family-agnostic API, designed mostly for the [LeRobot](https://github.com/huggingface/lerobot) library. Motors of several models and of both protocols on one port, registers by name, the facts about each servo, finding and setting up motors, and the torque of a whole bus. Some of its choices are LeRobot conventions rather than vendor rules; the controllers stay the per-servo API underneath.
+//!
+//! With the `async` feature, [`asynch`] and each servo's `asynch` module offer the
+//! protocol handler, the per-register functions and the controllers as `async fn`s, over
+//! any [`asynch::AsyncTransport`] -- for instance an embassy UART through
+//! [`asynch::EmbeddedIoTransport`].
 //!
 //! See the examples below for usage.
 //!
@@ -57,18 +64,51 @@
 //! c.sync_write_goal_position(&vec![1, 2], &vec![0.0, 90.0_f64.to_radians()]).unwrap();
 //! ```
 
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+// Without `std` or `async` nothing talks to a bus: the register conversions and some
+// imports only the IO code uses are left unused, and that is expected.
+#![cfg_attr(
+    not(any(feature = "std", feature = "async")),
+    allow(unused_imports, dead_code)
+)]
+
+extern crate alloc;
+
+/// What `std`'s prelude brings and `core`'s does not, for the modules that build without
+/// `std`. Macro expansions resolve these names at their call site, so every module that
+/// invokes `generate_servo!` imports it.
+#[allow(unused_imports)]
+pub(crate) mod prelude {
+    pub(crate) use alloc::{
+        borrow::ToOwned,
+        boxed::Box,
+        format,
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+}
+
+#[cfg(feature = "std")]
 pub mod bus;
 pub mod servo;
 
+#[cfg(feature = "async")]
+pub mod asynch;
 mod dynamixel_protocol;
+#[cfg(feature = "std")]
+pub mod transport;
+#[cfg(feature = "std")]
+pub use transport::Transport;
 #[cfg(test)]
 mod fake_port;
+#[cfg(feature = "std")]
+pub use dynamixel_protocol::DynamixelProtocolHandler;
 pub use dynamixel_protocol::{
-    CommunicationErrorKind, DynamixelErrorV1, DynamixelProtocolHandler, StatusError,
-    StatusPacketError, SyncReadError,
+    CommunicationErrorKind, DynamixelErrorV1, StatusError, StatusPacketError, SyncReadError,
 };
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = core::result::Result<T, alloc::boxed::Box<dyn core::error::Error>>;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;

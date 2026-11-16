@@ -1,19 +1,24 @@
-use serialport::SerialPort;
+#[cfg(feature = "std")]
+use crate::Transport;
 
-mod packet;
-use packet::{InstructionPacket, Packet, StatusPacket};
+pub(crate) mod packet;
+#[cfg(any(feature = "std", feature = "async"))]
+use packet::Packet;
+#[cfg(feature = "std")]
+use packet::{InstructionPacket, StatusPacket};
 
-mod v1;
+pub(crate) mod v1;
 pub use v1::DynamixelErrorV1;
 use v1::V1;
 
-mod v2;
+pub(crate) mod v2;
 use v2::V2;
 
+#[cfg(feature = "std")]
 use crate::Result;
 
 #[derive(Debug)]
-enum ProtocolKind {
+pub(crate) enum ProtocolKind {
     V1(V1),
     /// The bool routes sync reads through fast sync read (protocol v2 only)
     V2(V2, bool),
@@ -22,8 +27,8 @@ enum ProtocolKind {
 #[derive(Debug)]
 /// Raw dynamixel communication messages controller (protocol v1 or v2)
 pub struct DynamixelProtocolHandler {
-    protocol: ProtocolKind,
-    post_delay: Option<Duration>,
+    pub(crate) protocol: ProtocolKind,
+    pub(crate) post_delay: Option<Duration>,
 }
 
 impl DynamixelProtocolHandler {
@@ -88,17 +93,6 @@ impl DynamixelProtocolHandler {
         }
     }
 
-    /// Sleep the configured post delay, if there is one.
-    ///
-    /// Called after every bus transaction, whether or not it succeeded: the delay is
-    /// there to leave a gap on the wire, and a transaction that timed out has used the
-    /// bus just the same -- an immediate retry is exactly the case it guards against.
-    fn sleep_post_delay(&self) {
-        if let Some(delay) = self.post_delay {
-            std::thread::sleep(delay);
-        }
-    }
-
     /// Make [DynamixelProtocolHandler::sync_read] use Fast Sync Read.
     ///
     /// Protocol v2 only, and needs firmware accepting instruction 0x8A (XL330: v46+).
@@ -146,6 +140,38 @@ impl DynamixelProtocolHandler {
         }
     }
 
+    /// How long a broadcast ping listens at `baudrate`: the window the vendor SDKs use.
+    ///
+    /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
+    /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
+    /// can hold a short answer that long before passing it on.
+    #[cfg(any(feature = "std", feature = "async"))]
+    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
+        let (status_size, max_id) = match self.protocol {
+            ProtocolKind::V1(_) => (6, v1::MAX_ID),
+            ProtocolKind::V2(..) => (14, v2::MAX_ID),
+        };
+        let max_id = u64::from(max_id);
+        let bits = status_size * max_id * 10;
+        Duration::from_micros(bits * 1_000_000 / u64::from(baudrate))
+            + Duration::from_millis(3 * max_id + 16)
+    }
+}
+
+/// The blocking API, over a [`Transport`].
+#[cfg(feature = "std")]
+impl DynamixelProtocolHandler {
+    /// Sleep the configured post delay, if there is one.
+    ///
+    /// Called after every bus transaction, whether or not it succeeded: the delay is
+    /// there to leave a gap on the wire, and a transaction that timed out has used the
+    /// bus just the same -- an immediate retry is exactly the case it guards against.
+    fn sleep_post_delay(&self) {
+        if let Some(delay) = self.post_delay {
+            std::thread::sleep(delay);
+        }
+    }
+
     /// Send a ping instruction.
     ///
     /// Ping the motor with specified `id`.
@@ -171,7 +197,7 @@ impl DynamixelProtocolHandler {
     ///     false => println!("Motor 42 did not respond"),
     /// }
     /// ```
-    pub fn ping(&self, serial_port: &mut dyn serialport::SerialPort, id: u8) -> Result<bool> {
+    pub fn ping(&self, serial_port: &mut (impl crate::Transport + ?Sized), id: u8) -> Result<bool> {
         match &self.protocol {
             ProtocolKind::V1(p) => p.ping(serial_port, id),
             ProtocolKind::V2(p, _) => p.ping(serial_port, id),
@@ -187,7 +213,10 @@ impl DynamixelProtocolHandler {
     ///
     /// Only some firmwares answer: protocol v2 Dynamixel and Feetech STS do, protocol v1
     /// Dynamixel and Feetech SCS stay silent, which reads as no motor at all.
-    pub fn broadcast_ping(&self, serial_port: &mut dyn serialport::SerialPort) -> Result<Vec<u8>> {
+    pub fn broadcast_ping(
+        &self,
+        serial_port: &mut (impl crate::Transport + ?Sized),
+    ) -> Result<Vec<u8>> {
         let window = self.broadcast_ping_window(serial_port.baud_rate()?);
         let timeout = serial_port.timeout();
         let ids = match &self.protocol {
@@ -199,27 +228,15 @@ impl DynamixelProtocolHandler {
         ids
     }
 
-    /// How long a broadcast ping listens at `baudrate`: the window the vendor SDKs use.
-    ///
-    /// The status packets of every id the protocol allows (6 bytes each on v1, 14 on v2),
-    /// 3 ms of turn per id, and 16 ms for the latency timer of a USB serial adapter, which
-    /// can hold a short answer that long before passing it on.
-    pub fn broadcast_ping_window(&self, baudrate: u32) -> Duration {
-        let (status_size, max_id) = match self.protocol {
-            ProtocolKind::V1(_) => (6, v1::MAX_ID),
-            ProtocolKind::V2(..) => (14, v2::MAX_ID),
-        };
-        let max_id = u64::from(max_id);
-        let bits = status_size * max_id * 10;
-        Duration::from_micros(bits * 1_000_000 / u64::from(baudrate))
-            + Duration::from_millis(3 * max_id + 16)
-    }
-
     /// Send a reboot instruction.
     ///
     /// Reboot the motor with specified `id`.
     /// Returns an [CommunicationErrorKind] if the communication fails.
-    pub fn reboot(&self, serial_port: &mut dyn serialport::SerialPort, id: u8) -> Result<bool> {
+    pub fn reboot(
+        &self,
+        serial_port: &mut (impl crate::Transport + ?Sized),
+        id: u8,
+    ) -> Result<bool> {
         match &self.protocol {
             ProtocolKind::V1(p) => p.reboot(serial_port, id),
             ProtocolKind::V2(p, _) => p.reboot(serial_port, id),
@@ -232,7 +249,7 @@ impl DynamixelProtocolHandler {
     /// Please note that conserving ID and/or Baudrate is only supported on protocol v2.
     pub fn factory_reset(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
@@ -283,9 +300,9 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<u8>> {
         let res = match &self.protocol {
@@ -327,9 +344,9 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn write(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<()> {
         let res = match &self.protocol {
@@ -359,9 +376,9 @@ impl DynamixelProtocolHandler {
     ///   read from the Hardware Error Status register.
     pub fn read_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, StatusError)> {
         let res = match &self.protocol {
@@ -377,9 +394,9 @@ impl DynamixelProtocolHandler {
     /// error field. See [DynamixelProtocolHandler::read_with_error].
     pub fn write_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<StatusError> {
         let res = match &self.protocol {
@@ -393,9 +410,9 @@ impl DynamixelProtocolHandler {
 
     pub fn write_fb(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
         match &self.protocol {
@@ -447,9 +464,9 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn sync_read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         let res = match &self.protocol {
@@ -470,9 +487,9 @@ impl DynamixelProtocolHandler {
     /// byte on each protocol.
     pub fn sync_read_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, StatusError)>> {
         let res = match &self.protocol {
@@ -528,9 +545,9 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn fast_sync_read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         // The v1 arm never reaches the bus, so it has no gap to leave -- same shape as
@@ -578,9 +595,9 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn sync_write(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
         let res = match &self.protocol {
@@ -595,7 +612,8 @@ impl DynamixelProtocolHandler {
 /// The ids of the status packets in `bytes`. Anything that does not frame one (a stray
 /// byte, a packet cut short, a bad checksum) is skipped a byte at a time until the next
 /// header, so it costs that packet and not the ones after it.
-fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
+#[cfg(any(feature = "std", feature = "async"))]
+pub(crate) fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
     let mut ids = Vec::new();
     let mut start = 0;
     while start + P::HEADER_SIZE <= bytes.len() {
@@ -613,8 +631,9 @@ fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
     ids
 }
 
+#[cfg(feature = "std")]
 trait Protocol<P: Packet> {
-    fn ping(&self, port: &mut dyn SerialPort, id: u8) -> Result<bool> {
+    fn ping(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
         self.send_instruction_packet(port, P::ping_packet(id).as_ref())?;
 
         Ok(self.read_status_packet(port, id).is_ok())
@@ -623,7 +642,11 @@ trait Protocol<P: Packet> {
     /// Ping the broadcast id, collect every byte that arrives until `window` closes, and
     /// return the ids of the status packets among them. Changes the port's timeout; the
     /// caller puts it back.
-    fn broadcast_ping(&self, port: &mut dyn SerialPort, window: Duration) -> Result<Vec<u8>> {
+    fn broadcast_ping(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        window: Duration,
+    ) -> Result<Vec<u8>> {
         self.send_instruction_packet(port, P::ping_packet(P::BROADCAST_ID).as_ref())?;
         let deadline = Instant::now() + window;
         let mut received = Vec::new();
@@ -644,7 +667,7 @@ trait Protocol<P: Packet> {
         Ok(status_packet_ids::<P>(&received))
     }
 
-    fn reboot(&self, port: &mut dyn SerialPort, id: u8) -> Result<bool> {
+    fn reboot(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
         self.send_instruction_packet(port, P::reboot_packet(id).as_ref())?;
 
         Ok(self.read_status_packet(port, id).is_ok())
@@ -652,7 +675,7 @@ trait Protocol<P: Packet> {
 
     fn factory_reset(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
@@ -664,59 +687,71 @@ trait Protocol<P: Packet> {
         self.read_status_packet(port, id).map(|_| ())
     }
 
-    fn read(&self, port: &mut dyn SerialPort, id: u8, addr: u8, length: u8) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length).as_ref())?;
+    fn read(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        id: u8,
+        addr: u16,
+        length: u8,
+    ) -> Result<Vec<u8>> {
+        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| sp.params().to_vec())
     }
-    fn write(&self, port: &mut dyn SerialPort, id: u8, addr: u8, data: &[u8]) -> Result<()> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+    fn write(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        id: u8,
+        addr: u16,
+        data: &[u8],
+    ) -> Result<()> {
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id).map(|_| ())
     }
 
     fn read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, u8)> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| (sp.params().to_vec(), sp.error_byte()))
     }
 
     fn write_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<u8> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id).map(|sp| sp.error_byte())
     }
 
     fn write_fb(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| sp.params().to_vec())
     }
 
     fn sync_read(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
         let mut result = Vec::new();
         for &id in ids {
             let sp = self
@@ -728,12 +763,12 @@ trait Protocol<P: Packet> {
     }
     fn sync_read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, u8)>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
         let mut result = Vec::with_capacity(ids.len());
         for &id in ids {
             let sp = self
@@ -745,12 +780,12 @@ trait Protocol<P: Packet> {
     }
     fn sync_write(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
-        self.send_instruction_packet(port, P::sync_write_packet(ids, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::sync_write_packet(ids, addr, data)?.as_ref())?;
         Ok(())
     }
 
@@ -759,7 +794,7 @@ trait Protocol<P: Packet> {
 
     fn flush_if_needed(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         max_retries: usize,
         flush_after_delay: Duration,
     ) -> Result<()> {
@@ -785,7 +820,7 @@ trait Protocol<P: Packet> {
 
     fn send_instruction_packet(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         packet: &dyn InstructionPacket<P>,
     ) -> Result<()> {
         // Before we send an instruction
@@ -805,7 +840,7 @@ trait Protocol<P: Packet> {
         }
     }
     /// Read one status packet off the wire, header included, without interpreting it.
-    fn read_status_packet_bytes(&self, port: &mut dyn SerialPort) -> Result<Vec<u8>> {
+    fn read_status_packet_bytes(&self, port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
         let mut header = vec![0u8; P::HEADER_SIZE];
         port.read_exact(&mut header)?;
 
@@ -824,20 +859,20 @@ trait Protocol<P: Packet> {
 
     fn read_status_packet(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         sender_id: u8,
     ) -> Result<Box<dyn StatusPacket<P>>> {
         let data = self.read_status_packet_bytes(port)?;
         P::status_packet(&data, sender_id)
     }
 
-    fn is_input_buffer_empty(&self, port: &mut dyn SerialPort) -> Result<bool> {
-        let n = port.bytes_to_read()? as usize;
+    fn is_input_buffer_empty(&self, port: &mut (impl Transport + ?Sized)) -> Result<bool> {
+        let n = port.bytes_to_read()?;
         Ok(n == 0)
     }
 
-    fn flush(&self, port: &mut dyn SerialPort) -> Result<()> {
-        let n = port.bytes_to_read()? as usize;
+    fn flush(&self, port: &mut (impl Transport + ?Sized)) -> Result<()> {
+        let n = port.bytes_to_read()?;
         if n > 0 {
             // log::info!("Needed to flush serial port ({n} bytes)...");
             let mut buff = vec![0u8; n];
@@ -848,10 +883,12 @@ trait Protocol<P: Packet> {
     }
 }
 
-use std::{
-    fmt, io,
-    time::{Duration, Instant},
-};
+use core::{fmt, time::Duration};
+#[cfg(feature = "std")]
+use std::{io, time::Instant};
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// The error field of a status packet.
 ///
@@ -932,7 +969,7 @@ impl fmt::Display for StatusPacketError {
     }
 }
 
-impl std::error::Error for StatusPacketError {}
+impl core::error::Error for StatusPacketError {}
 
 /// Dynamixel Communication Error
 #[derive(Debug, Clone, Copy)]
@@ -948,6 +985,8 @@ pub enum CommunicationErrorKind {
 
     /// Operation not supported
     Unsupported,
+    /// A register address the protocol cannot carry: protocol v1 addresses stop at 255.
+    AddressOutOfRange(u16),
 }
 impl fmt::Display for CommunicationErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -959,10 +998,16 @@ impl fmt::Display for CommunicationErrorKind {
                 write!(f, "Incorrect id ({resp_id} instead of {sender_id})")
             }
             CommunicationErrorKind::Unsupported => write!(f, "Operation not supported"),
+            CommunicationErrorKind::AddressOutOfRange(addr) => {
+                write!(
+                    f,
+                    "Register address {addr} is out of range for this protocol"
+                )
+            }
         }
     }
 }
-impl std::error::Error for CommunicationErrorKind {}
+impl core::error::Error for CommunicationErrorKind {}
 
 /// A sync read that failed at one motor's answer: which motor, and why.
 ///
@@ -983,13 +1028,13 @@ pub struct SyncReadError {
     /// The motor whose answer failed.
     pub id: u8,
     /// Why: a [CommunicationErrorKind], or the I/O error of the read.
-    pub cause: Box<dyn std::error::Error>,
+    pub cause: Box<dyn core::error::Error>,
 }
 
 impl SyncReadError {
     /// Boxed as the crate's errors are: as a `Box<Self>`, `?` would box it a second time and
     /// `downcast_ref` would no longer find it.
-    pub(crate) fn boxed(id: u8, cause: Box<dyn std::error::Error>) -> Box<dyn std::error::Error> {
+    pub(crate) fn boxed(id: u8, cause: Box<dyn core::error::Error>) -> Box<dyn core::error::Error> {
         Box::new(SyncReadError { id, cause })
     }
 }
@@ -1000,13 +1045,13 @@ impl fmt::Display for SyncReadError {
     }
 }
 
-impl std::error::Error for SyncReadError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for SyncReadError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         Some(self.cause.as_ref())
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::fake_port::FakePort;
@@ -1204,6 +1249,35 @@ mod tests {
         let err = err.downcast_ref::<SyncReadError>().unwrap();
         assert_eq!(err.id, 4);
         assert_eq!(err.to_string(), "motor 4: Timeout error");
+    }
+
+    #[test]
+    fn protocol_v2_reaches_registers_above_255() {
+        // XL330 indirect data 21 sits at 634.
+        let dph = DynamixelProtocolHandler::v2();
+        let mut port = FakePort::new(vec![]);
+        let written = port.written();
+
+        assert!(dph.read(&mut port, 1, 634, 2).is_err()); // no answer scripted
+        let packet = &written.lock().unwrap()[0];
+        // Instruction 0x02 (read), then the address and the length, little-endian.
+        assert_eq!(packet[7..12], [0x02, 0x7A, 0x02, 0x02, 0x00]);
+    }
+
+    #[test]
+    fn protocol_v1_refuses_an_address_it_cannot_carry() {
+        let dph = DynamixelProtocolHandler::v1();
+        let mut port = FakePort::new(vec![]);
+        let written = port.written();
+
+        let err = dph.read(&mut port, 1, 256, 1).unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<CommunicationErrorKind>(),
+            Some(CommunicationErrorKind::AddressOutOfRange(256))
+        ));
+        assert!(dph.sync_write(&mut port, &[1], 300, &[vec![0]]).is_err());
+        // Nothing reached the bus.
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]

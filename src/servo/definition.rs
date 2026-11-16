@@ -6,12 +6,24 @@
 //! functions of each servo module, so the caller picks the definition and the handler
 //! motor by motor. [`crate::bus::Bus`] does that for a whole bus.
 
-use std::collections::BTreeMap;
+#[cfg(feature = "std")]
+use alloc::collections::BTreeMap;
 
-use serialport::SerialPort;
+#[cfg(feature = "std")]
+use crate::Transport;
 
-use crate::servo::{scan_timeout, RegisterError, RegisterInfo, ServoInfo, WordOrder};
-use crate::{DynamixelErrorV1, DynamixelProtocolHandler, Result, StatusError, StatusPacketError};
+#[allow(unused_imports)]
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::servo::scan_timeout;
+#[cfg(any(feature = "std", feature = "async"))]
+use crate::servo::{RegisterError, WordOrder};
+use crate::servo::{RegisterInfo, ServoInfo};
+#[cfg(feature = "std")]
+use crate::DynamixelProtocolHandler;
+use crate::{DynamixelErrorV1, StatusError};
+#[cfg(any(feature = "std", feature = "async"))]
+use crate::{Result, StatusPacketError};
 
 /// A servo definition as a value: its name, the protocol it speaks, what it states
 /// about itself and its registers.
@@ -40,34 +52,80 @@ impl ServoDefinition {
         self.registers.iter().copied().find(|r| r.name == name)
     }
 
-    fn named(&self, name: &str) -> Result<RegisterInfo> {
+    /// Whether `status`, the error field of an answer, says the servo refused the
+    /// instruction: an error number on protocol v2, an instruction, checksum or range error
+    /// on protocol v1, never on a servo whose status only reports alarms. The other bits are
+    /// conditions the motor reports while it carries the instruction out, as an overload or
+    /// the v2 alert bit.
+    pub fn refuses(&self, status: StatusError) -> bool {
+        if self.info.status_alarms_only {
+            false
+        } else if self.protocol == 2 {
+            status.v2_instruction_error() != 0
+        } else {
+            status.v1_conditions().iter().any(|condition| {
+                matches!(
+                    condition,
+                    DynamixelErrorV1::Instruction
+                        | DynamixelErrorV1::Checksum
+                        | DynamixelErrorV1::Range
+                )
+            })
+        }
+    }
+
+    /// `Ok` unless `status`, the answer of motor `id`, refuses the instruction.
+    #[cfg(any(feature = "std", feature = "async"))]
+    pub(crate) fn check_status(&self, id: u8, status: StatusError) -> Result<()> {
+        if self.refuses(status) {
+            Err(Box::new(StatusPacketError { id, status }))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// What the blocking and the async register access share: nothing here touches the bus.
+#[cfg(any(feature = "std", feature = "async"))]
+impl ServoDefinition {
+    pub(crate) fn named(&self, name: &str) -> Result<RegisterInfo> {
         Ok(self
             .register(name)
             .ok_or_else(|| RegisterError::Unknown(name.to_string()))?)
     }
 
-    fn check_protocol(&self, dph: &DynamixelProtocolHandler) -> Result<()> {
-        if dph.protocol_version() != self.protocol {
+    /// `Ok` when this servo speaks protocol `version`, the handler's.
+    pub(crate) fn check_protocol(&self, version: u8) -> Result<()> {
+        if version != self.protocol {
             return Err(RegisterError::Protocol {
                 servo: self.name,
                 servo_protocol: self.protocol,
-                handler_protocol: dph.protocol_version(),
+                handler_protocol: version,
             }
             .into());
         }
         Ok(())
     }
 
+    #[doc(hidden)]
+    pub fn motors(&self, ids: &[u8]) -> Vec<(u8, ServoDefinition)> {
+        ids.iter().map(|&id| (id, *self)).collect()
+    }
+}
+
+/// Register access by name over a blocking [`Transport`].
+#[cfg(feature = "std")]
+impl ServoDefinition {
     /// Read register `name` of motor `id` as an integer, decoded from this definition's
     /// word order and the register's sign encoding.
     pub fn read_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
     ) -> Result<i64> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named(name)?;
         let bytes = dph.read(port, id, reg.addr, reg.size)?;
         Ok(reg.decode(self.info.word_order, &bytes)?)
@@ -78,11 +136,11 @@ impl ServoDefinition {
     pub fn read_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
     ) -> Result<(i64, StatusError)> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named(name)?;
         let (bytes, error) = dph.read_with_error(port, id, reg.addr, reg.size)?;
         Ok((reg.decode(self.info.word_order, &bytes)?, error))
@@ -94,12 +152,12 @@ impl ServoDefinition {
     pub fn write_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
     ) -> Result<()> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named(name)?;
         dph.write(
             port,
@@ -114,12 +172,12 @@ impl ServoDefinition {
     pub fn write_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
     ) -> Result<StatusError> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named(name)?;
         dph.write_with_error(
             port,
@@ -138,7 +196,7 @@ impl ServoDefinition {
     pub fn sync_read_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
     ) -> Result<Vec<i64>> {
@@ -150,7 +208,7 @@ impl ServoDefinition {
     pub fn sync_read_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
     ) -> Result<Vec<(i64, StatusError)>> {
@@ -162,7 +220,7 @@ impl ServoDefinition {
     pub fn sync_write_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
         values: &[i64],
@@ -180,10 +238,10 @@ impl ServoDefinition {
     pub fn scan(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
     ) -> Result<BTreeMap<u8, u16>> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named("model_number")?;
         let timeout = port.timeout();
         port.set_timeout(scan_timeout(port.baud_rate()?))?;
@@ -208,10 +266,10 @@ impl ServoDefinition {
     pub fn broadcast_scan(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
     ) -> Result<BTreeMap<u8, u16>> {
-        self.check_protocol(dph)?;
+        self.check_protocol(dph.protocol_version())?;
         let reg = self.named("model_number")?;
         if !self.info.supports_broadcast_ping {
             return Err(RegisterError::BroadcastPing(self.name).into());
@@ -228,7 +286,7 @@ impl ServoDefinition {
     fn model_number(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         reg: RegisterInfo,
         id: u8,
     ) -> Option<(u8, u16)> {
@@ -246,7 +304,7 @@ impl ServoDefinition {
     pub fn change_id(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         new_id: u8,
     ) -> Result<()> {
@@ -263,7 +321,7 @@ impl ServoDefinition {
     pub fn change_baudrate(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         baudrate: u32,
     ) -> Result<()> {
@@ -286,7 +344,7 @@ impl ServoDefinition {
     fn open_eeprom(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
     ) -> Result<()> {
         self.write_checked(dph, port, id, "torque_enable", 0)?;
@@ -301,7 +359,7 @@ impl ServoDefinition {
     fn write_checked(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
@@ -311,53 +369,19 @@ impl ServoDefinition {
             self.write_register_with_error(dph, port, id, name, value)?,
         )
     }
-
-    /// Whether `status`, the error field of an answer, says the servo refused the
-    /// instruction: an error number on protocol v2, an instruction, checksum or range error
-    /// on protocol v1, never on a servo whose status only reports alarms. The other bits are
-    /// conditions the motor reports while it carries the instruction out, as an overload or
-    /// the v2 alert bit.
-    pub fn refuses(&self, status: StatusError) -> bool {
-        if self.info.status_alarms_only {
-            false
-        } else if self.protocol == 2 {
-            status.v2_instruction_error() != 0
-        } else {
-            status.v1_conditions().iter().any(|condition| {
-                matches!(
-                    condition,
-                    DynamixelErrorV1::Instruction
-                        | DynamixelErrorV1::Checksum
-                        | DynamixelErrorV1::Range
-                )
-            })
-        }
-    }
-
-    /// `Ok` unless `status`, the answer of motor `id`, refuses the instruction.
-    pub(crate) fn check_status(&self, id: u8, status: StatusError) -> Result<()> {
-        if self.refuses(status) {
-            Err(Box::new(StatusPacketError { id, status }))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn motors(&self, ids: &[u8]) -> Vec<(u8, ServoDefinition)> {
-        ids.iter().map(|&id| (id, *self)).collect()
-    }
 }
 
+#[cfg(any(feature = "std", feature = "async"))]
 /// Register `name` of each motor, which one instruction can only reach if it sits at the
-/// same address and size on all of them, through a handler of their protocol.
-fn resolve(
-    dph: &DynamixelProtocolHandler,
+/// same address and size on all of them, through a handler of protocol `version`.
+pub(crate) fn resolve(
+    version: u8,
     motors: &[(u8, ServoDefinition)],
     name: &str,
 ) -> Result<Vec<(RegisterInfo, WordOrder)>> {
     let mut regs = Vec::with_capacity(motors.len());
     for (_, definition) in motors {
-        definition.check_protocol(dph)?;
+        definition.check_protocol(version)?;
         regs.push((definition.named(name)?, definition.info.word_order));
     }
     if regs
@@ -369,16 +393,19 @@ fn resolve(
     Ok(regs)
 }
 
-fn answer_sync_read(motors: &[(u8, ServoDefinition)]) -> bool {
+#[cfg(any(feature = "std", feature = "async"))]
+pub(crate) fn answer_sync_read(motors: &[(u8, ServoDefinition)]) -> bool {
     motors
         .iter()
         .all(|(_, definition)| definition.info.supports_sync_read)
 }
 
-fn ids(motors: &[(u8, ServoDefinition)]) -> Vec<u8> {
+#[cfg(any(feature = "std", feature = "async"))]
+pub(crate) fn ids(motors: &[(u8, ServoDefinition)]) -> Vec<u8> {
     motors.iter().map(|&(id, _)| id).collect()
 }
 
+#[cfg(feature = "std")]
 /// Sync read register `name` from `motors`, each an id with its own definition, in one
 /// instruction: the XL430 and XL330 of a Koch arm, say.
 ///
@@ -388,7 +415,7 @@ fn ids(motors: &[(u8, ServoDefinition)]) -> Vec<u8> {
 /// time instead, in the order given.
 pub fn sync_read_register(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
 ) -> Result<Vec<i64>> {
@@ -398,7 +425,7 @@ pub fn sync_read_register(
             .map(|&(id, definition)| definition.read_register(dph, port, id, name))
             .collect();
     }
-    let regs = resolve(dph, motors, name)?;
+    let regs = resolve(dph.protocol_version(), motors, name)?;
     let Some(&(first, _)) = regs.first() else {
         return Ok(Vec::new());
     };
@@ -409,10 +436,11 @@ pub fn sync_read_register(
         .collect()
 }
 
+#[cfg(feature = "std")]
 /// Same as [`sync_read_register`], plus each motor's error field.
 pub fn sync_read_register_with_error(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
 ) -> Result<Vec<(i64, StatusError)>> {
@@ -422,7 +450,7 @@ pub fn sync_read_register_with_error(
             .map(|&(id, definition)| definition.read_register_with_error(dph, port, id, name))
             .collect();
     }
-    let regs = resolve(dph, motors, name)?;
+    let regs = resolve(dph.protocol_version(), motors, name)?;
     let Some(&(first, _)) = regs.first() else {
         return Ok(Vec::new());
     };
@@ -433,35 +461,38 @@ pub fn sync_read_register_with_error(
         .collect()
 }
 
+#[cfg(feature = "std")]
 /// Sync write `values` to register `name` of `motors`, one value per motor, in one
 /// instruction; each value is laid out through its motor's definition. The same rules
 /// as [`sync_read_register`] apply to the definitions.
 pub fn sync_write_register(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
     values: &[i64],
 ) -> Result<()> {
-    match SyncWrite::encode(dph, motors, name, values)? {
+    match SyncWrite::encode(dph.protocol_version(), motors, name, values)? {
         Some(write) => write.send(dph, port),
         None => Ok(()),
     }
 }
 
+#[cfg(any(feature = "std", feature = "async"))]
 /// A Sync Write ready to go: every check done and every value encoded, so sending it
 /// can only fail on the bus.
 pub(crate) struct SyncWrite {
-    ids: Vec<u8>,
-    addr: u8,
-    data: Vec<Vec<u8>>,
+    pub(crate) ids: Vec<u8>,
+    pub(crate) addr: u16,
+    pub(crate) data: Vec<Vec<u8>>,
 }
 
+#[cfg(any(feature = "std", feature = "async"))]
 impl SyncWrite {
     /// The Sync Write that puts `values` in register `name` of `motors`, or `None` when
     /// there is no motor. Fails with a [`RegisterError`], and sends nothing.
     pub(crate) fn encode(
-        dph: &DynamixelProtocolHandler,
+        version: u8,
         motors: &[(u8, ServoDefinition)],
         name: &str,
         values: &[i64],
@@ -473,7 +504,7 @@ impl SyncWrite {
             }
             .into());
         }
-        let regs = resolve(dph, motors, name)?;
+        let regs = resolve(version, motors, name)?;
         let Some(&(first, _)) = regs.first() else {
             return Ok(None);
         };
@@ -481,7 +512,7 @@ impl SyncWrite {
             .iter()
             .zip(values)
             .map(|(&(reg, order), &value)| reg.encode(order, value))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<core::result::Result<Vec<_>, _>>()?;
         Ok(Some(SyncWrite {
             ids: ids(motors),
             addr: first.addr,
@@ -489,15 +520,17 @@ impl SyncWrite {
         }))
     }
 
+    #[cfg(feature = "std")]
     pub(crate) fn send(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
     ) -> Result<()> {
         dph.sync_write(port, &self.ids, self.addr, &self.data)
     }
 }
 
+#[cfg(feature = "std")]
 /// Run `op`, and run it again up to `retries` more times while it fails on the bus.
 ///
 /// A timeout or a corrupted status packet is worth another try, and each attempt starts
@@ -639,7 +672,7 @@ impl ServoDefinition {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::fake_port::FakePort;

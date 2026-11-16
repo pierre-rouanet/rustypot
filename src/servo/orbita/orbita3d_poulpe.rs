@@ -1,6 +1,10 @@
 //! Orbita 3Dof Poulpe version
 
-use crate::{generate_reg_write_fb, generate_servo};
+#[cfg(feature = "std")]
+use crate::generate_reg_write_fb;
+use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Wrapper for a value per motor
 #[derive(Clone, Copy, Debug)]
@@ -70,6 +74,7 @@ generate_servo!(
     reg: (full_state, r, 100, MotorPositionSpeedLoad, None),
 );
 
+#[cfg(feature = "std")]
 generate_reg_write_fb!(
     target_position,
     60,

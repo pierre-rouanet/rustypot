@@ -1,4 +1,6 @@
 use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Wrapper for a value per motor (A and B)
 #[derive(Clone, Copy, Debug)]
@@ -57,6 +59,7 @@ generate_servo!(
 );
 
 // TODO:
+#[cfg(feature = "std")]
 crate::generate_reg_write_fb!(
     target_position,
     60,

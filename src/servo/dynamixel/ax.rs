@@ -9,6 +9,8 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/ax/ax-12a/> for example.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{generate_servo, servo::conversion::Conversion};
 
 generate_servo!(
@@ -48,25 +50,27 @@ generate_servo!(
     reg: (punch, rw, 48, u16, None),
 );
 
+#[cfg(feature = "std")]
 /// Sync read present_position, present_speed and present_load in one message
 ///
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))
 pub fn sync_read_present_position_speed_load(
     dph: &crate::DynamixelProtocolHandler,
-    serial_port: &mut dyn serialport::SerialPort,
+    serial_port: &mut (impl crate::Transport + ?Sized),
     ids: &[u8],
 ) -> crate::Result<Vec<(i16, u16, u16)>> {
     let val = dph.sync_read(serial_port, ids, 36, 2 + 2 + 2)?;
     let val = val
         .iter()
-        .map(|v| {
-            (
-                i16::from_le_bytes(v[0..2].try_into().unwrap()),
-                u16::from_le_bytes(v[2..4].try_into().unwrap()),
-                u16::from_le_bytes(v[4..6].try_into().unwrap()),
-            )
+        .map(|v| match v[..] {
+            [p0, p1, s0, s1, l0, l1] => Ok((
+                i16::from_le_bytes([p0, p1]),
+                u16::from_le_bytes([s0, s1]),
+                u16::from_le_bytes([l0, l1]),
+            )),
+            _ => Err(crate::CommunicationErrorKind::ParsingError),
         })
-        .collect();
+        .collect::<core::result::Result<_, _>>()?;
 
     Ok(val)
 }
@@ -90,7 +94,7 @@ impl Conversion for AnglePosition {
 pub mod conv {
 
     const RPM_PER_DXL_SPEED: f64 = 0.111;
-    const RPM_TO_RADS_FACTOR: f64 = 2.0 * std::f64::consts::PI / 60.0;
+    const RPM_TO_RADS_FACTOR: f64 = 2.0 * core::f64::consts::PI / 60.0;
 
     /// Dynamixel absolute speed to radians per second
     ///

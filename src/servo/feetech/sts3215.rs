@@ -1,4 +1,6 @@
-use std::f64::consts::PI;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::f64::consts::PI;
 
 use crate::generate_servo;
 use crate::servo::conversion::Conversion;
@@ -123,7 +125,7 @@ impl Conversion for Offset {
     type UsiType = f64;
 
     fn from_raw(raw: u16) -> f64 {
-        use std::f64::consts::PI;
+        use core::f64::consts::PI;
         let negative = (raw >> 11) == 1;
         let magnitude = raw % (MAX_MAGNITUDE + 1);
 
@@ -137,7 +139,7 @@ impl Conversion for Offset {
     }
 
     fn to_raw(value: f64) -> u16 {
-        use std::f64::consts::PI;
+        use core::f64::consts::PI;
 
         let magnitude = (value.abs() * f64::from(MAX_MAGNITUDE) / PI) as u16;
 
@@ -187,7 +189,7 @@ mod tests {
     #[test]
     fn offset_conversions() {
         use crate::servo::{conversion::Conversion, feetech::sts3215::Offset};
-        use std::f64::consts::{FRAC_PI_2, PI};
+        use core::f64::consts::{FRAC_PI_2, PI};
 
         assert_eq!(Offset::to_raw(0.0), 0);
         assert_eq!(Offset::to_raw(PI), 2047);

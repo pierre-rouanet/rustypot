@@ -37,7 +37,7 @@ use rustypot::{servo::dynamixel::xl330, DynamixelProtocolHandler};
 
 /// Where the two indirect blocks start: `indirect_address_1` is the first pointer slot,
 /// `indirect_data_1` the first byte they gather into.
-fn indirect_bases() -> Result<(u8, u8, u8), Box<dyn Error>> {
+fn indirect_bases() -> Result<(u16, u16, u8), Box<dyn Error>> {
     let addr =
         xl330::register("indirect_address_1").ok_or("this servo defines no indirect_address_1")?;
     let data = xl330::register("indirect_data_1").ok_or("this servo defines no indirect_data_1")?;
@@ -51,7 +51,7 @@ const CONST_REGS: &[&str] = &["torque_enable", "status_return_level", "position_
 
 /// Resolve register names to (address, size) through the servo's own register table, so
 /// the map can be chosen at runtime instead of hardcoded.
-fn resolve(names: &[impl AsRef<str>]) -> Result<Vec<(u8, u8)>, Box<dyn Error>> {
+fn resolve(names: &[impl AsRef<str>]) -> Result<Vec<(u16, u8)>, Box<dyn Error>> {
     names
         .iter()
         .map(|n| {
@@ -110,15 +110,15 @@ struct Args {
 ///
 /// Each slot points at exactly ONE byte, so an n byte register needs n consecutive slots
 /// pointing at addr, addr+1, ... This part is easy to get wrong by hand.
-fn indirect_map(entries: &[(u8, u8)]) -> Vec<u8> {
+fn indirect_map(entries: &[(u16, u8)]) -> Vec<u8> {
     entries
         .iter()
-        .flat_map(|&(addr, len)| (0..len).map(move |i| addr as u16 + i as u16))
+        .flat_map(|&(addr, len)| (0..len).map(move |i| addr + u16::from(i)))
         .flat_map(|a| a.to_le_bytes())
         .collect()
 }
 
-fn block_len(entries: &[(u8, u8)]) -> u8 {
+fn block_len(entries: &[(u16, u8)]) -> u8 {
     entries.iter().map(|&(_, len)| len).sum()
 }
 
@@ -138,7 +138,7 @@ fn read_separate(
     dph: &DynamixelProtocolHandler,
     port: &mut dyn serialport::SerialPort,
     ids: &[u8],
-    groups: &[(u8, u8)],
+    groups: &[(u16, u8)],
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let mut out = vec![Vec::new(); ids.len()];
     for &(addr, len) in groups {
@@ -154,8 +154,8 @@ fn read_wide(
     dph: &DynamixelProtocolHandler,
     port: &mut dyn serialport::SerialPort,
     ids: &[u8],
-    groups: &[(u8, u8)],
-    wide_addr: u8,
+    groups: &[(u16, u8)],
+    wide_addr: u16,
     wide_len: u8,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let blocks = dph.sync_read(port, ids, wide_addr, wide_len)?;
@@ -217,12 +217,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (indirect_addr, indirect_data, slot_size) = indirect_bases()?;
     // The pointer slots run from indirect_address_1 to indirect_data_1 (28 on XL330 firmware v53+)
-    let slot_count = ((indirect_data - indirect_addr) / slot_size) as usize;
+    let slot_count = ((indirect_data - indirect_addr) / u16::from(slot_size)) as usize;
 
     let fast_regs = resolve(&args.fast)?;
     let slow_regs = resolve(&args.slow)?;
     let const_regs = resolve(CONST_REGS)?;
-    let all: Vec<(u8, u8)> = fast_regs.iter().chain(&slow_regs).copied().collect();
+    let all: Vec<(u16, u8)> = fast_regs.iter().chain(&slow_regs).copied().collect();
 
     // Each gathered byte = one indirect slot; refuse a selection that cannot fit,
     // before anything is written. This keeps the slot addresses computed here in range:
@@ -238,8 +238,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // What a single contiguous read would have to span to reach every chosen register.
     let wide_addr = all.iter().map(|&(a, _)| a).min().unwrap();
-    let wide_end = all.iter().map(|&(a, l)| a as u16 + l as u16).max().unwrap();
-    let wide_len = u8::try_from(wide_end - wide_addr as u16)?;
+    let wide_end = all.iter().map(|&(a, l)| a + u16::from(l)).max().unwrap();
+    let wide_len = u8::try_from(wide_end - wide_addr)?;
 
     println!(
         "bus: {} at {} baud, {n} motors",
@@ -298,7 +298,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         let t = Instant::now();
         for &id in &ids {
             for (slot, chunk) in map.chunks(slot_size as usize).enumerate() {
-                dph.write(port, id, indirect_addr + slot_size * slot as u8, chunk)?;
+                dph.write(
+                    port,
+                    id,
+                    indirect_addr + u16::from(slot_size) * slot as u16,
+                    chunk,
+                )?;
             }
         }
         confirm(port)?;

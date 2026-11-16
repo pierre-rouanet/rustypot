@@ -3,6 +3,8 @@
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xl320/> for details.
 
 use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 generate_servo!(
     XL320, v2,
@@ -40,25 +42,27 @@ generate_servo!(
     reg: (hardware_error_status, r, 50, u8, None),
     reg: (punch, rw, 51, u16, None),
 );
+#[cfg(feature = "std")]
 /// Sync read present_position, present_speed and present_load in one message
 ///
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))
 pub fn sync_read_present_position_speed_load(
     dph: &crate::DynamixelProtocolHandler,
-    serial_port: &mut dyn serialport::SerialPort,
+    serial_port: &mut (impl crate::Transport + ?Sized),
     ids: &[u8],
 ) -> crate::Result<Vec<(i16, u16, u16)>> {
     let val = dph.sync_read(serial_port, ids, 37, 2 + 2 + 2)?;
     let val = val
         .iter()
-        .map(|v| {
-            (
-                i16::from_le_bytes(v[0..2].try_into().unwrap()),
-                u16::from_le_bytes(v[2..4].try_into().unwrap()),
-                u16::from_le_bytes(v[4..6].try_into().unwrap()),
-            )
+        .map(|v| match v[..] {
+            [p0, p1, s0, s1, l0, l1] => Ok((
+                i16::from_le_bytes([p0, p1]),
+                u16::from_le_bytes([s0, s1]),
+                u16::from_le_bytes([l0, l1]),
+            )),
+            _ => Err(crate::CommunicationErrorKind::ParsingError),
         })
-        .collect();
+        .collect::<core::result::Result<_, _>>()?;
 
     Ok(val)
 }

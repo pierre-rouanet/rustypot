@@ -3,6 +3,8 @@
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/> for details.
 
 use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 generate_servo!(
     XL430, v2,

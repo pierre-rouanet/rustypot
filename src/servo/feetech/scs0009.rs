@@ -1,4 +1,6 @@
 use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::servo::conversion::Conversion;
 
 generate_servo!(

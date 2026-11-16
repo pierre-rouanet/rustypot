@@ -14,11 +14,12 @@ Rustypot is a communication library for Dynamixel/Feetech motors. It is notably 
 
 ## Feature Overview
 
-* Relies on [serialport](https://docs.rs/serialport/latest/serialport/) for serial communication
+* Relies on [serialport](https://docs.rs/serialport/latest/serialport/) for serial communication, or on any byte link implementing `Transport`
 * Support for dynamixel protocol v1 and v2 (can also use both on the same bus)
 * Support for sync read and sync write operations, plus fast sync read (protocol v2, instruction 0x8A) to read a whole bus in a single status packet
 * Easy support for new type of motors (register definition through macros). Currently support for dynamixel XL320, XL330, XL430, XM430, MX*, AX*, Orbita 2D & 3D.
 * Pure Rust plus python bindings (using [pyo3](https://pyo3.rs/)).
+* Runs on microcontrollers: `no_std` (with `alloc`) and an async API that works with [embassy](https://embassy.dev) (see [below](#on-a-microcontroller-async-no_std)).
 
 To add new servo, please refer to the [Servo documentation](./src/servo/README.md).
 
@@ -76,6 +77,29 @@ fn main() {
     c.sync_write_goal_position(&vec![1, 2], &vec![1000, 2000]).unwrap();
 }
 ```
+
+### On a microcontroller (async, `no_std`)
+
+Turn off the default `std` feature and turn on `async`:
+
+```toml
+rustypot = { version = "1", default-features = false, features = ["async"] }
+```
+
+The crate then needs only `core` and `alloc` (so a global allocator). `rustypot::asynch` holds the async protocol handler, and each servo module an `asynch` module with one `async fn` per register and a controller. They run over any `rustypot::asynch::AsyncTransport`; `EmbeddedIoTransport` provides one over any `embedded-io-async` serial port and `embedded-hal-async` delay, such as an embassy UART:
+
+```rust
+use rustypot::asynch::EmbeddedIoTransport;
+use rustypot::servo::dynamixel::xl330;
+
+let link = EmbeddedIoTransport::new(uart, embassy_time::Delay, Duration::from_millis(10));
+let mut motors = xl330::asynch::Xl330Controller::new(link);
+
+motors.sync_write_torque_enable(&[1, 2], &[true, true]).await?;
+let positions = motors.sync_read_present_position(&[1, 2]).await?;
+```
+
+[`examples/embassy-rp2040`](./examples/embassy-rp2040) is a complete program for a Raspberry Pi Pico. The async API does not cover broadcast ping, scanning or `Bus` yet; those stay with `std`.
 
 ## Tools
 

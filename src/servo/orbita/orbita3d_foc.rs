@@ -1,6 +1,8 @@
 //! Orbita 3DoF Serial SimpleFOC register (protocol v1)
 
 use crate::generate_servo;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Wrapper for a value per disk (top, middle, bottom)
 #[derive(Clone, Copy, Debug)]

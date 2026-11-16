@@ -15,26 +15,44 @@ macro_rules! generate_servo {
      $(reg: ($reg_name:ident, $reg_access:ident, $reg_addr:expr, $reg_type:ty, $conv:ident),)+
     ) => {
         paste::paste! {
+            /// Carries the model numbers of this servo, see [`DEFINITION`].
+            #[doc(hidden)]
+            pub struct [<$servo_name:camel Models>];
+
+            #[cfg(feature = "std")]
             pub struct [<$servo_name:camel Controller>] {
                 dph: Option<$crate::DynamixelProtocolHandler>,
-                serial_port: Option<Box<dyn serialport::SerialPort>>,
+                serial_port: Option<Box<dyn $crate::Transport + Send>>,
             }
 
+            #[cfg(feature = "std")]
             impl Default for [<$servo_name:camel Controller>] {
                 fn default() -> Self {
                     Self::new()
                 }
             }
 
+            #[cfg(feature = "std")]
             impl [<$servo_name:camel Controller>] {
+                /// Model numbers of the servos this definition covers, by name.
+                pub const MODELS: &'static [(&'static str, u16)] =
+                    [<$servo_name:camel Models>]::MODELS;
+
                 pub fn new() -> Self {
                     Self {dph: None, serial_port: None}
                 }
                 pub fn with_serial_port(self,
                                         serial_port: Box<dyn serialport::SerialPort>,
                 ) -> Self {
+                    self.with_transport($crate::transport::BoxedSerialPort::boxed(serial_port))
+                }
+
+                /// Talk to the motors over `transport` instead of a serial port.
+                ///
+                /// See [`Transport`]($crate::Transport) for what the link must provide.
+                pub fn with_transport(self, transport: Box<dyn $crate::Transport + Send>) -> Self {
                     Self {
-                        serial_port: Some(serial_port),
+                        serial_port: Some(transport),
                         ..self
                     }
                 }
@@ -50,7 +68,7 @@ macro_rules! generate_servo {
                 /// Give the open serial port a new read timeout.
                 ///
                 /// This bounds every transaction with a motor that does not answer.
-                pub fn set_timeout(&mut self, timeout: std::time::Duration) -> $crate::Result<()> {
+                pub fn set_timeout(&mut self, timeout: core::time::Duration) -> $crate::Result<()> {
                     Ok(self.serial_port.as_mut().unwrap().set_timeout(timeout)?)
                 }
             }
@@ -117,7 +135,7 @@ macro_rules! generate_servo {
                 /// This bounds every transaction with a motor that does not answer. A
                 /// negative, NaN or infinite timeout raises `ValueError`.
                 pub fn set_timeout(&self, timeout: f32) -> PyResult<()> {
-                    let timeout = std::time::Duration::try_from_secs_f32(timeout)
+                    let timeout = core::time::Duration::try_from_secs_f32(timeout)
                         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
                     let mut guard = self.0.lock().unwrap();
                     Self::borrow(&mut guard)
@@ -172,7 +190,7 @@ macro_rules! generate_servo {
                 /// Serial rates the servo can be set to, as {baud rate: register value},
                 /// slowest first.
                 #[staticmethod]
-                pub fn baudrates() -> std::collections::BTreeMap<u32, u8> {
+                pub fn baudrates() -> alloc::collections::BTreeMap<u32, u8> {
                     INFO.baudrates.iter().copied().collect()
                 }
 
@@ -246,7 +264,7 @@ macro_rules! generate_servo {
                 // Evaluated at compile time: a register type too large for the protocol's u8
                 // lengths fails the build here instead of being silently truncated.
                 size: {
-                    let size = std::mem::size_of::<$reg_type>();
+                    let size = core::mem::size_of::<$reg_type>();
                     assert!(size <= u8::MAX as usize, "register type is larger than 255 bytes");
                     size as u8
                 },
@@ -271,19 +289,31 @@ macro_rules! generate_servo {
                 protocol: $crate::protocol_version!($protocol),
                 info: INFO,
                 registers: REGISTERS,
-                models: [<$servo_name:camel Controller>]::MODELS,
+                models: [<$servo_name:camel Models>]::MODELS,
             };
         }
 
+        #[cfg(feature = "std")]
         $crate::generate_protocol_constructor!($servo_name, $protocol);
+        #[cfg(feature = "std")]
         $crate::generate_special_instructions!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_addr_read_write!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_register_access!($servo_name);
+        #[cfg(feature = "std")]
         $crate::generate_scan!($servo_name);
 
         $(
+            #[cfg(feature = "std")]
             $crate::generate_reg_access!($servo_name, $reg_name, $reg_access, $reg_addr, $reg_type, $conv);
         )*
+
+        #[cfg(feature = "async")]
+        $crate::generate_servo_async!(
+            $servo_name, $protocol,
+            $(($reg_name, $reg_access, $reg_addr, $reg_type, $conv)),+
+        );
     };
 }
 
@@ -308,7 +338,7 @@ macro_rules! generate_protocol_constructor {
                 #[new]
                 pub fn new(serial_port: &str, baudrate: u32, timeout: f32) -> PyResult<Self> {
                     let serial_port = serialport::new(serial_port, baudrate)
-                        .timeout(std::time::Duration::from_secs_f32(timeout))
+                        .timeout(core::time::Duration::from_secs_f32(timeout))
                         .open()
                         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
@@ -376,7 +406,7 @@ macro_rules! generate_protocol_constructor {
                 #[new]
                 pub fn new(serial_port: &str, baudrate: u32, timeout: f32) -> PyResult<Self> {
                     let serial_port = serialport::new(serial_port, baudrate)
-                        .timeout(std::time::Duration::from_secs_f32(timeout))
+                        .timeout(core::time::Duration::from_secs_f32(timeout))
                         .open()
                         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
@@ -432,7 +462,7 @@ macro_rules! generate_addr_read_write {
                 pub fn read_raw_data(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<u8>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -443,7 +473,7 @@ macro_rules! generate_addr_read_write {
                 pub fn write_raw_data(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: Vec<u8>,
                 ) -> $crate::Result<()> {
                     let dph = self.dph.as_ref().unwrap();
@@ -456,7 +486,7 @@ macro_rules! generate_addr_read_write {
                 pub fn read_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<(Vec<u8>, $crate::StatusError)> {
                     let dph = self.dph.as_ref().unwrap();
@@ -469,7 +499,7 @@ macro_rules! generate_addr_read_write {
                 pub fn write_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: Vec<u8>,
                 ) -> $crate::Result<$crate::StatusError> {
                     let dph = self.dph.as_ref().unwrap();
@@ -482,7 +512,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_read_raw_data_with_error(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<(Vec<u8>, $crate::StatusError)>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -493,7 +523,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_read_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<Vec<u8>>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -504,7 +534,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_write_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     data: &[Vec<u8>],
                 ) -> $crate::Result<()> {
                     let dph = self.dph.as_ref().unwrap();
@@ -521,7 +551,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Py<PyAny>> {
 
@@ -543,7 +573,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<()> {
                     let data = data.extract::<Vec<u8>>()?;
@@ -568,7 +598,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<(Py<PyAny>, u8)> {
                     let (x, err) = py
@@ -592,7 +622,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Vec<(Py<PyAny>, u8)>> {
                     let ids = ids.extract::<Vec<u8>>()?;
@@ -620,7 +650,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<u8> {
                     let data = data.extract::<Vec<u8>>()?;
@@ -640,7 +670,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Py<PyAny>> {
                     let ids = ids.extract::<Vec<u8>>()?;
@@ -662,7 +692,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<()> {
                     let ids = ids.extract::<Vec<u8>>()?;
@@ -740,7 +770,7 @@ macro_rules! generate_register_access {
         paste::paste! {
             impl [<$servo_name:camel Controller>] {
                 /// The protocol handler and the port, for [`DEFINITION`]'s functions.
-                fn wire(&mut self) -> (&$crate::DynamixelProtocolHandler, &mut dyn serialport::SerialPort) {
+                fn wire(&mut self) -> (&$crate::DynamixelProtocolHandler, &mut dyn $crate::Transport) {
                     (self.dph.as_ref().unwrap(), self.serial_port.as_mut().unwrap().as_mut())
                 }
 
@@ -984,14 +1014,14 @@ macro_rules! generate_scan {
                 /// sized to the baud rate, see [`scan_timeout`](crate::servo::scan_timeout),
                 /// and puts the port's timeout back afterwards. An id that answers with
                 /// anything the protocol cannot parse counts as absent.
-                pub fn scan(&mut self, ids: &[u8]) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn scan(&mut self, ids: &[u8]) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let (dph, port) = self.wire();
                     DEFINITION.scan(dph, port, ids)
                 }
 
                 /// [`scan`](Self::scan) every id the protocol allows, from 0 to
                 /// [`max_id`](crate::DynamixelProtocolHandler::max_id).
-                pub fn scan_all(&mut self) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn scan_all(&mut self) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let ids: Vec<u8> = (0..=self.dph.as_ref().unwrap().max_id()).collect();
                     self.scan(&ids)
                 }
@@ -999,13 +1029,13 @@ macro_rules! generate_scan {
                 /// Which of `ids` answer, with their model number: one broadcast ping,
                 /// then a read of each id asked that answered. See
                 /// [`ServoDefinition::broadcast_scan`](crate::servo::ServoDefinition::broadcast_scan).
-                pub fn broadcast_scan(&mut self, ids: &[u8]) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn broadcast_scan(&mut self, ids: &[u8]) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let (dph, port) = self.wire();
                     DEFINITION.broadcast_scan(dph, port, ids)
                 }
 
                 /// [`broadcast_scan`](Self::broadcast_scan) every id the protocol allows.
-                pub fn broadcast_scan_all(&mut self) -> $crate::Result<std::collections::BTreeMap<u8, u16>> {
+                pub fn broadcast_scan_all(&mut self) -> $crate::Result<alloc::collections::BTreeMap<u8, u16>> {
                     let ids: Vec<u8> = (0..=self.dph.as_ref().unwrap().max_id()).collect();
                     self.broadcast_scan(&ids)
                 }
@@ -1026,7 +1056,7 @@ macro_rules! generate_scan {
                     &self,
                     py: Python,
                     ids: Option<Vec<u8>>,
-                ) -> PyResult<std::collections::BTreeMap<u8, u16>> {
+                ) -> PyResult<alloc::collections::BTreeMap<u8, u16>> {
                     self.by_name(py, |c| match &ids {
                         Some(ids) => c.scan(ids),
                         None => c.scan_all(),
@@ -1046,7 +1076,7 @@ macro_rules! generate_scan {
                     &self,
                     py: Python,
                     ids: Option<Vec<u8>>,
-                ) -> PyResult<std::collections::BTreeMap<u8, u16>> {
+                ) -> PyResult<alloc::collections::BTreeMap<u8, u16>> {
                     self.by_name(py, |c| match &ids {
                         Some(ids) => c.broadcast_scan(ids),
                         None => c.broadcast_scan_all(),
@@ -1187,11 +1217,11 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
-                let val = $reg_type::from_le_bytes(val.try_into().unwrap());
+                let val = $reg_type::from_le_bytes(val.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
 
                 Ok(val)
             }
@@ -1199,14 +1229,19 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<$reg_type>> {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
                 let val = val
                     .iter()
-                    .map(|v| $reg_type::from_le_bytes(v.as_slice().try_into().unwrap()))
-                    .collect();
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map($reg_type::from_le_bytes)
+                            .map_err(|_| $crate::CommunicationErrorKind::ParsingError)
+                    })
+                    .collect::<core::result::Result<_, _>>()?;
 
                 Ok(val)
             }
@@ -1305,11 +1340,11 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<read_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
-                let val = $reg_type::from_le_bytes(val.try_into().unwrap());
+                let val = $reg_type::from_le_bytes(val.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
 
                 Ok(val)
             }
@@ -1317,7 +1352,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<<$conv as Conversion>::UsiType> {
                 let val = [<read_raw_ $reg_name>](io, serial_port, id)?;
@@ -1328,14 +1363,19 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_read_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<$reg_type>> {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
                 let val = val
                     .iter()
-                    .map(|v| $reg_type::from_le_bytes(v.as_slice().try_into().unwrap()))
-                    .collect();
+                    .map(|v| {
+                        v.as_slice()
+                            .try_into()
+                            .map($reg_type::from_le_bytes)
+                            .map_err(|_| $crate::CommunicationErrorKind::ParsingError)
+                    })
+                    .collect::<core::result::Result<_, _>>()?;
 
                 Ok(val)
             }
@@ -1343,7 +1383,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<sync_read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<<$conv as Conversion>::UsiType>> {
                 let val = [<sync_read_raw_ $reg_name>](io, serial_port, ids)?;
@@ -1512,7 +1552,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<()> {
@@ -1522,7 +1562,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {
@@ -1621,7 +1661,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<()> {
@@ -1631,7 +1671,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: <$conv as Conversion>::UsiType,
             ) -> $crate::Result<()> {
@@ -1642,7 +1682,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {
@@ -1660,7 +1700,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<sync_write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[<$conv as Conversion>::UsiType],
             ) -> $crate::Result<()> {
@@ -1826,19 +1866,19 @@ macro_rules! generate_reg_write_fb {
             #[doc = concat!("Write register with fb *", stringify!($name), "* (addr: ", stringify!($addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_ $name _fb>](
                 dph: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<$fb_type> {
                 let fb = dph.write_fb(serial_port, id, $addr, &val.to_le_bytes())?;
-                let fb = $fb_type::from_le_bytes(fb.try_into().unwrap());
+                let fb = $fb_type::from_le_bytes(fb.try_into().map_err(|_| $crate::CommunicationErrorKind::ParsingError)?);
                 Ok(fb)
             }
 
             #[doc = concat!("Sync write register *", stringify!($name), "* (addr: ", stringify!($addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_ $name _fb>](
                 dph: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {
@@ -1885,7 +1925,7 @@ macro_rules! register_servo {
             }
 
             $(
-                impl $group::[<$servo:lower>]::[<$servo:camel Controller>] {
+                impl $group::[<$servo:lower>]::[<$servo:camel Models>] {
                     /// Model numbers of the servos this definition covers, by name.
                     pub const MODELS: &'static [(&'static str, u16)] = &[
                         $((stringify!($name), $model_number)),+
@@ -1941,7 +1981,7 @@ macro_rules! register_servo {
                     /// Model numbers of the servos this definition covers, as {name: number},
                     /// by name.
                     #[staticmethod]
-                    pub fn models() -> std::collections::BTreeMap<String, u16> {
+                    pub fn models() -> alloc::collections::BTreeMap<String, u16> {
                         $group::[<$servo:lower>]::[<$servo:camel Controller>]::MODELS
                             .iter()
                             .map(|&(name, number)| (name.to_string(), number))

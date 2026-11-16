@@ -39,7 +39,7 @@ struct Args {
 
     /// First register to read (default 132: present position)
     #[arg(short, long, default_value_t = 132)]
-    addr: u8,
+    addr: u16,
 
     /// Number of bytes to read per motor (default 4: one i32)
     #[arg(short, long, default_value_t = 4)]

@@ -1,3 +1,4 @@
 /target
+examples/embassy-rp2040/target
 
 __pycache__

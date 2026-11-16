@@ -1,5 +1,40 @@
 ## Unreleased
 
+- `Transport`: the protocol now runs over any byte link, not only a `serialport` port
+  (first step of #73). Every `serialport::SerialPort` is a `Transport`, so existing
+  `serial_port.as_mut()` calls are unchanged. The protocol handler, the per-register
+  functions and `ServoDefinition` take `&mut (impl Transport + ?Sized)`; controllers gain
+  `with_transport` and `Bus` gains `from_transport`, both taking a
+  `Box<dyn Transport + Send>`.
+- `no_std`: a new default `std` feature holds the blocking API (serial ports,
+  controllers, `Bus`, scanning). Without it the crate needs only `core` and `alloc`.
+  `signal-hook` and `env_logger` became dev-dependencies, and the unused `num_enum` and
+  `proc-macro2` were dropped. The blocking `DynamixelProtocolHandler` is exported only
+  with `std`.
+- Async API (feature `async`, with or without `std`): `rustypot::asynch` has the
+  `AsyncTransport` trait, `EmbeddedIoTransport` (any `embedded-io-async` serial port and
+  `embedded-hal-async` delay, e.g. an embassy UART) and an async
+  `DynamixelProtocolHandler`; each servo module has an `asynch` module with async
+  per-register functions and a controller generic over its link. `Bus` is not in it
+  yet.
+- Async: register access by name, scanning and motor setup in
+  `rustypot::asynch::definition` (`read_register`, `sync_read_register` over mixed
+  definitions, `scan`, `broadcast_scan`, `change_id`, `change_baudrate`...), and as methods
+  of the async controllers; `broadcast_ping` on the async handler. `AsyncTransport` gains
+  `timeout`, `set_timeout` and `listen` (the window of a broadcast ping, exact on
+  `EmbeddedIoTransport`).
+- Async: `HalfDuplex` drives the direction pin of a half-duplex buffer (any
+  `embedded-hal` `OutputPin`) around each write, and with `with_tx_busy` keeps it until
+  the UART is done sending.
+- `examples/embassy-rp2040`: XL330 motors driven from a Raspberry Pi Pico, built in CI.
+- **Breaking:** register addresses are `u16` everywhere (`RegisterInfo::addr`, the
+  handlers, the controllers' `*_raw_data`), so protocol v2 reaches the whole control table
+  (the XL330's indirect blocks above 255, for instance). Protocol v1 refuses an address
+  above 255 with the new `CommunicationErrorKind::AddressOutOfRange` before sending
+  anything.
+- A register answer of the wrong size is a `CommunicationErrorKind::ParsingError` instead
+  of a panic, in the blocking per-register functions and the AX/MX/XL320
+  position-speed-load helpers.
 - Register the Feetech STS3235 (model number 2057) under the STS3215 definition: it
   reads and moves through the STS3215 control table.
 

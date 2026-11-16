@@ -2,7 +2,9 @@
 //!
 //! See <https://emanual.robotis.com/docs/en/dxl/x/xl330-m077/> for details.
 
-use std::f64::consts::PI;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::f64::consts::PI;
 
 use crate::{generate_servo, servo::conversion::Conversion};
 
@@ -111,7 +113,7 @@ impl Conversion for AnglePosition {
 
 /// Unit conversion for XL330 motors (same as XM?)
 pub mod conv {
-    use std::f32::consts::PI;
+    use core::f32::consts::PI;
 
     /// Dynamixel angular position to radians
     ///

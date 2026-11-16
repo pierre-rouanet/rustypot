@@ -17,6 +17,9 @@ use std::time::Duration;
 
 use serialport::SerialPort;
 
+use crate::transport::BoxedSerialPort;
+use crate::Transport;
+
 use crate::servo::definition::{self, retrying, ServoDefinition, SyncWrite};
 use crate::servo::RegisterError;
 use crate::{DynamixelProtocolHandler, Result, StatusError};
@@ -26,9 +29,10 @@ use crate::{DynamixelProtocolHandler, Result, StatusError};
 /// and its definition.
 type Group = (u8, Vec<(usize, (u8, ServoDefinition))>);
 
-/// A serial port, a protocol handler for each protocol, and the definition of each motor.
+/// A link to the motors (a serial port, or any other [`Transport`]), a protocol handler
+/// for each protocol, and the definition of each motor.
 pub struct Bus {
-    serial_port: Box<dyn SerialPort>,
+    serial_port: Box<dyn Transport + Send>,
     /// Indexed by protocol version minus one.
     handlers: [DynamixelProtocolHandler; 2],
     motors: BTreeMap<u8, ServoDefinition>,
@@ -38,8 +42,16 @@ impl Bus {
     /// A bus over `serial_port` whose motors are `motors`, as id -> definition. Motors of
     /// both protocols can share the port.
     pub fn new(serial_port: Box<dyn SerialPort>, motors: BTreeMap<u8, ServoDefinition>) -> Self {
+        Self::from_transport(BoxedSerialPort::boxed(serial_port), motors)
+    }
+
+    /// A bus over any [`Transport`] whose motors are `motors`, as id -> definition.
+    pub fn from_transport(
+        transport: Box<dyn Transport + Send>,
+        motors: BTreeMap<u8, ServoDefinition>,
+    ) -> Self {
         Bus {
-            serial_port,
+            serial_port: transport,
             handlers: [
                 DynamixelProtocolHandler::v1(),
                 DynamixelProtocolHandler::v2(),
@@ -94,7 +106,7 @@ impl Bus {
     /// `name` at the same address and size. Groups come in the order their first id is
     /// asked, and keep the order of their ids.
     fn groups(&self, ids: &[u8], name: &str) -> Result<Vec<Group>> {
-        let mut groups: Vec<((u8, u8, u8), Group)> = Vec::new();
+        let mut groups: Vec<((u8, u16, u8), Group)> = Vec::new();
         for (position, &id) in ids.iter().enumerate() {
             let definition = self.definition(id)?;
             let reg = definition
@@ -176,7 +188,9 @@ impl Bus {
                 .map(|&(position, _)| values[position])
                 .collect();
             let dph = &self.handlers[protocol as usize - 1];
-            if let Some(write) = SyncWrite::encode(dph, &motors, name, &group_values)? {
+            if let Some(write) =
+                SyncWrite::encode(dph.protocol_version(), &motors, name, &group_values)?
+            {
                 writes.push((dph, write));
             }
         }
