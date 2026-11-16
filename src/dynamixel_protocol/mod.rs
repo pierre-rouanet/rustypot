@@ -14,6 +14,9 @@ use v1::V1;
 pub(crate) mod v2;
 use v2::V2;
 
+#[cfg(test)]
+mod equivalence_tests;
+
 #[cfg(feature = "std")]
 use crate::Result;
 
