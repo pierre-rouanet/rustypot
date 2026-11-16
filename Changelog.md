@@ -23,6 +23,21 @@
   of the async controllers; `broadcast_ping` on the async handler. `AsyncTransport` gains
   `timeout`, `set_timeout` and `listen` (the window of a broadcast ping, exact on
   `EmbeddedIoTransport`).
+- New crate **`rustypot-core`** (`no_std`, no `alloc`, no dependencies): Protocol 1.0/2.0
+  packet encoding and decoding into caller buffers, a byte-at-a-time `v2::Decoder`, Fast
+  Sync Read on both sides, and `device`: the device side of Protocol 2.0 (answer Ping,
+  Read, Write, Sync Write, (Fast) Sync Read with the wait for its turn, Reboot, Factory
+  Reset) from a control table, about 3 KB of flash on a Cortex-M0+. rustypot builds and
+  parses every packet through it; the two were checked byte-identical over generated
+  inputs before the old code was removed.
+- The blocking and the async API now run the same exchange code (the blocking one drives
+  it over its serial port), instead of two copies.
+- **Breaking:** a blocking read that times out now fails with
+  `rustypot::TransportError::TimedOut` ("Timeout error") instead of an `io::Error`; any
+  other port error is a `TransportError::Link` that keeps the `io::Error` as its
+  `source()`. A status packet from the
+  wrong id is `CommunicationErrorKind::IncorrectId(expected, got)` on both protocols
+  (protocol v1 used to say `ParsingError`; protocol v2 had the two ids swapped).
 - Async: `HalfDuplex` drives the direction pin of a half-duplex buffer (any
   `embedded-hal` `OutputPin`) around each write, and with `with_tx_busy` keeps it until
   the UART is done sending.

@@ -84,7 +84,7 @@ impl<L: AsyncTransport, P: OutputPin> AsyncTransport for HalfDuplex<L, P> {
         self.link.timeout()
     }
 
-    fn set_timeout(&mut self, timeout: Duration) {
+    fn set_timeout(&mut self, timeout: Duration) -> Result<(), TransportError> {
         self.link.set_timeout(timeout)
     }
 

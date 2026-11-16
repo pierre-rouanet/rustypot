@@ -1,11 +1,6 @@
 #[cfg(feature = "std")]
-use crate::Transport;
-
-pub(crate) mod packet;
-#[cfg(any(feature = "std", feature = "async"))]
-use packet::Packet;
-#[cfg(feature = "std")]
-use packet::{InstructionPacket, StatusPacket};
+mod blocking;
+mod exchange;
 
 pub(crate) mod v1;
 pub use v1::DynamixelErrorV1;
@@ -16,15 +11,17 @@ use v2::V2;
 
 #[cfg(feature = "std")]
 use crate::Result;
+#[cfg(feature = "std")]
+use blocking::{block_on, BlockingLink};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum ProtocolKind {
     V1(V1),
     /// The bool routes sync reads through fast sync read (protocol v2 only)
     V2(V2, bool),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Raw dynamixel communication messages controller (protocol v1 or v2)
 pub struct DynamixelProtocolHandler {
     pub(crate) protocol: ProtocolKind,
@@ -158,20 +155,9 @@ impl DynamixelProtocolHandler {
     }
 }
 
-/// The blocking API, over a [`Transport`].
+/// The blocking API, over a [`Transport`](crate::Transport).
 #[cfg(feature = "std")]
 impl DynamixelProtocolHandler {
-    /// Sleep the configured post delay, if there is one.
-    ///
-    /// Called after every bus transaction, whether or not it succeeded: the delay is
-    /// there to leave a gap on the wire, and a transaction that timed out has used the
-    /// bus just the same -- an immediate retry is exactly the case it guards against.
-    fn sleep_post_delay(&self) {
-        if let Some(delay) = self.post_delay {
-            std::thread::sleep(delay);
-        }
-    }
-
     /// Send a ping instruction.
     ///
     /// Ping the motor with specified `id`.
@@ -198,10 +184,7 @@ impl DynamixelProtocolHandler {
     /// }
     /// ```
     pub fn ping(&self, serial_port: &mut (impl crate::Transport + ?Sized), id: u8) -> Result<bool> {
-        match &self.protocol {
-            ProtocolKind::V1(p) => p.ping(serial_port, id),
-            ProtocolKind::V2(p, _) => p.ping(serial_port, id),
-        }
+        block_on(self.ping_async(&mut BlockingLink::new(serial_port), id))
     }
 
     /// Ping every motor at once, and return the ids that answer.
@@ -218,14 +201,7 @@ impl DynamixelProtocolHandler {
         serial_port: &mut (impl crate::Transport + ?Sized),
     ) -> Result<Vec<u8>> {
         let window = self.broadcast_ping_window(serial_port.baud_rate()?);
-        let timeout = serial_port.timeout();
-        let ids = match &self.protocol {
-            ProtocolKind::V1(p) => p.broadcast_ping(serial_port, window),
-            ProtocolKind::V2(p, _) => p.broadcast_ping(serial_port, window),
-        };
-        serial_port.set_timeout(timeout)?;
-        self.sleep_post_delay();
-        ids
+        block_on(self.broadcast_ping_async(&mut BlockingLink::new(serial_port), window))
     }
 
     /// Send a reboot instruction.
@@ -237,10 +213,7 @@ impl DynamixelProtocolHandler {
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
     ) -> Result<bool> {
-        match &self.protocol {
-            ProtocolKind::V1(p) => p.reboot(serial_port, id),
-            ProtocolKind::V2(p, _) => p.reboot(serial_port, id),
-        }
+        block_on(self.reboot_async(&mut BlockingLink::new(serial_port), id))
     }
 
     /// Factory reset instruction.
@@ -254,17 +227,12 @@ impl DynamixelProtocolHandler {
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
     ) -> Result<()> {
-        match &self.protocol {
-            ProtocolKind::V1(p) => {
-                if conserve_id_only || conserve_id_and_baudrate {
-                    return Err(Box::new(CommunicationErrorKind::Unsupported));
-                }
-                p.factory_reset(serial_port, id, conserve_id_only, conserve_id_and_baudrate)
-            }
-            ProtocolKind::V2(p, _) => {
-                p.factory_reset(serial_port, id, conserve_id_only, conserve_id_and_baudrate)
-            }
-        }
+        block_on(self.factory_reset_async(
+            &mut BlockingLink::new(serial_port),
+            id,
+            conserve_id_only,
+            conserve_id_and_baudrate,
+        ))
     }
 
     /// Reads raw register bytes.
@@ -305,12 +273,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<u8>> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.read(serial_port, id, addr, length),
-            ProtocolKind::V2(p, _) => p.read(serial_port, id, addr, length),
-        };
-        self.sleep_post_delay();
-        res
+        Ok(self.read_with_error(serial_port, id, addr, length)?.0)
     }
 
     /// Writes raw bytes to register.
@@ -349,12 +312,8 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[u8],
     ) -> Result<()> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.write(serial_port, id, addr, data),
-            ProtocolKind::V2(p, _) => p.write(serial_port, id, addr, data),
-        };
-        self.sleep_post_delay();
-        res
+        self.write_with_error(serial_port, id, addr, data)
+            .map(|_| ())
     }
 
     /// Same as [DynamixelProtocolHandler::read], and also returns the status packet's
@@ -381,13 +340,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, StatusError)> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.read_with_error(serial_port, id, addr, length),
-            ProtocolKind::V2(p, _) => p.read_with_error(serial_port, id, addr, length),
-        }
-        .map(|(values, e)| (values, StatusError::new(e)));
-        self.sleep_post_delay();
-        res
+        block_on(self.read_with_error_async(&mut BlockingLink::new(serial_port), id, addr, length))
     }
 
     /// Same as [DynamixelProtocolHandler::write], and also returns the status packet's
@@ -399,13 +352,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[u8],
     ) -> Result<StatusError> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.write_with_error(serial_port, id, addr, data),
-            ProtocolKind::V2(p, _) => p.write_with_error(serial_port, id, addr, data),
-        }
-        .map(StatusError::new);
-        self.sleep_post_delay();
-        res
+        block_on(self.write_with_error_async(&mut BlockingLink::new(serial_port), id, addr, data))
     }
 
     pub fn write_fb(
@@ -415,14 +362,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
-        match &self.protocol {
-            ProtocolKind::V1(p) => {
-                let res = p.write_fb(serial_port, id, addr, data);
-                self.sleep_post_delay();
-                res
-            }
-            ProtocolKind::V2(..) => Err(Box::new(CommunicationErrorKind::Unsupported)),
-        }
+        block_on(self.write_fb_async(&mut BlockingLink::new(serial_port), id, addr, data))
     }
 
     /// Reads raw register bytes from multiple ids at once.
@@ -469,13 +409,11 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.sync_read(serial_port, ids, addr, length),
-            ProtocolKind::V2(p, false) => p.sync_read(serial_port, ids, addr, length),
-            ProtocolKind::V2(p, true) => p.fast_sync_read(serial_port, ids, addr, length),
-        };
-        self.sleep_post_delay();
-        res
+        Ok(self
+            .sync_read_with_error(serial_port, ids, addr, length)?
+            .into_iter()
+            .map(|(values, _)| values)
+            .collect())
     }
 
     /// Same as [DynamixelProtocolHandler::sync_read], and also returns each motor's
@@ -492,18 +430,12 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, StatusError)>> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.sync_read_with_error(serial_port, ids, addr, length),
-            ProtocolKind::V2(p, false) => p.sync_read_with_error(serial_port, ids, addr, length),
-            ProtocolKind::V2(p, true) => {
-                p.fast_sync_read_with_error(serial_port, ids, addr, length)
-            }
-        };
-        self.sleep_post_delay();
-        Ok(res?
-            .into_iter()
-            .map(|(values, e)| (values, StatusError::new(e)))
-            .collect())
+        block_on(self.sync_read_with_error_async(
+            &mut BlockingLink::new(serial_port),
+            ids,
+            addr,
+            length,
+        ))
     }
 
     /// Reads raw register bytes from multiple ids at once, using a single status packet.
@@ -550,16 +482,7 @@ impl DynamixelProtocolHandler {
         addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
-        // The v1 arm never reaches the bus, so it has no gap to leave -- same shape as
-        // write_fb.
-        match &self.protocol {
-            ProtocolKind::V1(_) => Err(Box::new(CommunicationErrorKind::Unsupported)),
-            ProtocolKind::V2(p, _) => {
-                let res = p.fast_sync_read(serial_port, ids, addr, length);
-                self.sleep_post_delay();
-                res
-            }
-        }
+        block_on(self.fast_sync_read_async(&mut BlockingLink::new(serial_port), ids, addr, length))
     }
 
     /// Write raw bytes to multiple ids at once.
@@ -600,292 +523,11 @@ impl DynamixelProtocolHandler {
         addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
-        let res = match &self.protocol {
-            ProtocolKind::V1(p) => p.sync_write(serial_port, ids, addr, data),
-            ProtocolKind::V2(p, _) => p.sync_write(serial_port, ids, addr, data),
-        };
-        self.sleep_post_delay();
-        res
-    }
-}
-
-/// The ids of the status packets in `bytes`. Anything that does not frame one (a stray
-/// byte, a packet cut short, a bad checksum) is skipped a byte at a time until the next
-/// header, so it costs that packet and not the ones after it.
-#[cfg(any(feature = "std", feature = "async"))]
-pub(crate) fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
-    let mut ids = Vec::new();
-    let mut start = 0;
-    while start + P::HEADER_SIZE <= bytes.len() {
-        let packet = P::get_payload_size(&bytes[start..start + P::HEADER_SIZE])
-            .ok()
-            .map(|payload| &bytes[start..bytes.len().min(start + P::HEADER_SIZE + payload)]);
-        match packet {
-            Some(packet) if P::status_packet(packet, packet[P::ID_POSITION]).is_ok() => {
-                ids.push(packet[P::ID_POSITION]);
-                start += packet.len();
-            }
-            _ => start += 1,
-        }
-    }
-    ids
-}
-
-#[cfg(feature = "std")]
-trait Protocol<P: Packet> {
-    fn ping(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
-        self.send_instruction_packet(port, P::ping_packet(id).as_ref())?;
-
-        Ok(self.read_status_packet(port, id).is_ok())
-    }
-
-    /// Ping the broadcast id, collect every byte that arrives until `window` closes, and
-    /// return the ids of the status packets among them. Changes the port's timeout; the
-    /// caller puts it back.
-    fn broadcast_ping(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        window: Duration,
-    ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::ping_packet(P::BROADCAST_ID).as_ref())?;
-        let deadline = Instant::now() + window;
-        let mut received = Vec::new();
-        let mut chunk = [0u8; 256];
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            port.set_timeout(left)?;
-            match port.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => received.extend_from_slice(&chunk[..n]),
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => break,
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Ok(status_packet_ids::<P>(&received))
-    }
-
-    fn reboot(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
-        self.send_instruction_packet(port, P::reboot_packet(id).as_ref())?;
-
-        Ok(self.read_status_packet(port, id).is_ok())
-    }
-
-    fn factory_reset(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        conserve_id_only: bool,
-        conserve_id_and_baudrate: bool,
-    ) -> Result<()> {
-        self.send_instruction_packet(
-            port,
-            P::factory_reset_packet(id, conserve_id_only, conserve_id_and_baudrate).as_ref(),
-        )?;
-        self.read_status_packet(port, id).map(|_| ())
-    }
-
-    fn read(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        addr: u16,
-        length: u8,
-    ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
-        self.read_status_packet(port, id)
-            .map(|sp| sp.params().to_vec())
-    }
-    fn write(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        addr: u16,
-        data: &[u8],
-    ) -> Result<()> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
-        self.read_status_packet(port, id).map(|_| ())
-    }
-
-    fn read_with_error(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        addr: u16,
-        length: u8,
-    ) -> Result<(Vec<u8>, u8)> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
-        self.read_status_packet(port, id)
-            .map(|sp| (sp.params().to_vec(), sp.error_byte()))
-    }
-
-    fn write_with_error(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        addr: u16,
-        data: &[u8],
-    ) -> Result<u8> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
-        self.read_status_packet(port, id).map(|sp| sp.error_byte())
-    }
-
-    fn write_fb(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        id: u8,
-        addr: u16,
-        data: &[u8],
-    ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
-        self.read_status_packet(port, id)
-            .map(|sp| sp.params().to_vec())
-    }
-
-    fn sync_read(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        ids: &[u8],
-        addr: u16,
-        length: u8,
-    ) -> Result<Vec<Vec<u8>>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
-        let mut result = Vec::new();
-        for &id in ids {
-            let sp = self
-                .read_status_packet(port, id)
-                .map_err(|cause| SyncReadError::boxed(id, cause))?;
-            result.push(sp.params().to_vec());
-        }
-        Ok(result)
-    }
-    fn sync_read_with_error(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        ids: &[u8],
-        addr: u16,
-        length: u8,
-    ) -> Result<Vec<(Vec<u8>, u8)>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
-        let mut result = Vec::with_capacity(ids.len());
-        for &id in ids {
-            let sp = self
-                .read_status_packet(port, id)
-                .map_err(|cause| SyncReadError::boxed(id, cause))?;
-            result.push((sp.params().to_vec(), sp.error_byte()));
-        }
-        Ok(result)
-    }
-    fn sync_write(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        ids: &[u8],
-        addr: u16,
-        data: &[Vec<u8>],
-    ) -> Result<()> {
-        self.send_instruction_packet(port, P::sync_write_packet(ids, addr, data)?.as_ref())?;
-        Ok(())
-    }
-
-    const MAX_FLUSH_RETRIES: usize = 3;
-    const FLUSH_RETRY_DELAY_MS: u64 = 5;
-
-    fn flush_if_needed(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        max_retries: usize,
-        flush_after_delay: Duration,
-    ) -> Result<()> {
-        for _attempt in 1..=max_retries {
-            if self.is_input_buffer_empty(port)? {
-                return Ok(());
-            }
-            // log::warn!(
-            //     "Input buffer not empty before sending instruction, flushing... (retry {}/{})",
-            //     attempt,
-            //     max_retries
-            // );
-            self.flush(port)?;
-            std::thread::sleep(flush_after_delay);
-        }
-        if self.is_input_buffer_empty(port)? {
-            Ok(())
-        } else {
-            // log::error!("Could not flush input buffer before sending instruction");
-            Err(Box::new(CommunicationErrorKind::TimeoutError))
-        }
-    }
-
-    fn send_instruction_packet(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        packet: &dyn InstructionPacket<P>,
-    ) -> Result<()> {
-        // Before we send an instruction
-        // The input buffer should always be empty
-        // (if not, it means that an old corrupted message need to be flushed)
-        self.flush_if_needed(
-            port,
-            Self::MAX_FLUSH_RETRIES,
-            Duration::from_millis(Self::FLUSH_RETRY_DELAY_MS),
-        )?;
-
-        // log::debug!(">>> {:?}", packet.to_bytes());
-
-        match port.write_all(&packet.to_bytes()) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Box::new(CommunicationErrorKind::TimeoutError)),
-        }
-    }
-    /// Read one status packet off the wire, header included, without interpreting it.
-    fn read_status_packet_bytes(&self, port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
-        let mut header = vec![0u8; P::HEADER_SIZE];
-        port.read_exact(&mut header)?;
-
-        let payload_size = P::get_payload_size(&header)?;
-        let mut payload = vec![0u8; payload_size];
-        port.read_exact(&mut payload)?;
-
-        let mut data = Vec::new();
-        data.extend(header);
-        data.extend(payload);
-
-        // log::debug!("<<< {data:?}");
-
-        Ok(data)
-    }
-
-    fn read_status_packet(
-        &self,
-        port: &mut (impl Transport + ?Sized),
-        sender_id: u8,
-    ) -> Result<Box<dyn StatusPacket<P>>> {
-        let data = self.read_status_packet_bytes(port)?;
-        P::status_packet(&data, sender_id)
-    }
-
-    fn is_input_buffer_empty(&self, port: &mut (impl Transport + ?Sized)) -> Result<bool> {
-        let n = port.bytes_to_read()?;
-        Ok(n == 0)
-    }
-
-    fn flush(&self, port: &mut (impl Transport + ?Sized)) -> Result<()> {
-        let n = port.bytes_to_read()?;
-        if n > 0 {
-            // log::info!("Needed to flush serial port ({n} bytes)...");
-            let mut buff = vec![0u8; n];
-            port.read_exact(&mut buff)?;
-        }
-
-        Ok(())
+        block_on(self.sync_write_async(&mut BlockingLink::new(serial_port), ids, addr, data))
     }
 }
 
 use core::{fmt, time::Duration};
-#[cfg(feature = "std")]
-use std::{io, time::Instant};
 
 #[allow(unused_imports)]
 use crate::prelude::*;

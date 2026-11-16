@@ -6,6 +6,9 @@ license = "Apache-2.0"
 publish = false
 description = "Drive Dynamixel servos from a Raspberry Pi Pico with rustypot's async API on embassy."
 
+# Its own workspace: it builds for the RP2040 only, apart from the rustypot one.
+[workspace]
+
 [dependencies]
 rustypot = { path = "../..", default-features = false, features = ["async"] }
 

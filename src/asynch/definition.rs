@@ -147,14 +147,14 @@ pub async fn scan(
     definition.check_protocol(dph.protocol_version())?;
     let reg = definition.named("model_number")?;
     let timeout = port.timeout();
-    port.set_timeout(scan_timeout(baudrate));
+    port.set_timeout(scan_timeout(baudrate))?;
     let mut found = BTreeMap::new();
     for &id in ids {
         if let Some(model) = model_number(definition, dph, port, reg, id).await {
             found.insert(id, model);
         }
     }
-    port.set_timeout(timeout);
+    port.set_timeout(timeout)?;
     Ok(found)
 }
 

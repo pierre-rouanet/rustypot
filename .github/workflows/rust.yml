@@ -21,7 +21,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --workspace
     - name: Run tests with the async API
       run: cargo test --verbose --features async
     - name: Format
@@ -40,6 +40,8 @@ jobs:
       with:
         targets: thumbv6m-none-eabi
 
+    - name: Build rustypot-core
+      run: cargo build -p rustypot-core --target thumbv6m-none-eabi
     - name: Build without std
       run: cargo build --lib --no-default-features --target thumbv6m-none-eabi
     - name: Build without std, with the async API
