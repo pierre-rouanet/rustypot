@@ -462,7 +462,7 @@ macro_rules! generate_addr_read_write {
                 pub fn read_raw_data(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<u8>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -473,7 +473,7 @@ macro_rules! generate_addr_read_write {
                 pub fn write_raw_data(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: Vec<u8>,
                 ) -> $crate::Result<()> {
                     let dph = self.dph.as_ref().unwrap();
@@ -486,7 +486,7 @@ macro_rules! generate_addr_read_write {
                 pub fn read_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<(Vec<u8>, $crate::StatusError)> {
                     let dph = self.dph.as_ref().unwrap();
@@ -499,7 +499,7 @@ macro_rules! generate_addr_read_write {
                 pub fn write_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: Vec<u8>,
                 ) -> $crate::Result<$crate::StatusError> {
                     let dph = self.dph.as_ref().unwrap();
@@ -512,7 +512,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_read_raw_data_with_error(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<(Vec<u8>, $crate::StatusError)>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -523,7 +523,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_read_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<Vec<u8>>> {
                     let dph = self.dph.as_ref().unwrap();
@@ -534,7 +534,7 @@ macro_rules! generate_addr_read_write {
                 pub fn sync_write_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     data: &[Vec<u8>],
                 ) -> $crate::Result<()> {
                     let dph = self.dph.as_ref().unwrap();
@@ -551,7 +551,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Py<PyAny>> {
 
@@ -573,7 +573,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<()> {
                     let data = data.extract::<Vec<u8>>()?;
@@ -598,7 +598,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<(Py<PyAny>, u8)> {
                     let (x, err) = py
@@ -622,7 +622,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Vec<(Py<PyAny>, u8)>> {
                     let ids = ids.extract::<Vec<u8>>()?;
@@ -650,7 +650,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<u8> {
                     let data = data.extract::<Vec<u8>>()?;
@@ -670,7 +670,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> PyResult<Py<PyAny>> {
                     let ids = ids.extract::<Vec<u8>>()?;
@@ -692,7 +692,7 @@ macro_rules! generate_addr_read_write {
                     &self,
                     py: Python,
                     ids: &Bound<'_, pyo3::types::PyList>,
-                    addr: u8,
+                    addr: u16,
                     data: &Bound<'_, pyo3::types::PyList>,
                 ) -> PyResult<()> {
                     let ids = ids.extract::<Vec<u8>>()?;

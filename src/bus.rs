@@ -106,7 +106,7 @@ impl Bus {
     /// `name` at the same address and size. Groups come in the order their first id is
     /// asked, and keep the order of their ids.
     fn groups(&self, ids: &[u8], name: &str) -> Result<Vec<Group>> {
-        let mut groups: Vec<((u8, u8, u8), Group)> = Vec::new();
+        let mut groups: Vec<((u8, u16, u8), Group)> = Vec::new();
         for (position, &id) in ids.iter().enumerate() {
             let definition = self.definition(id)?;
             let reg = definition

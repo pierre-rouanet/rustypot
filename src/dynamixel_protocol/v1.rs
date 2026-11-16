@@ -10,6 +10,11 @@ use super::{
 };
 
 const BROADCAST_ID: u8 = 254;
+
+/// `addr` as protocol v1 carries it: on one byte.
+fn address(addr: u16) -> Result<u8> {
+    u8::try_from(addr).map_err(|_| CommunicationErrorKind::AddressOutOfRange(addr).into())
+}
 /// The highest id a motor can take: everything below the broadcast id.
 pub(crate) const MAX_ID: u8 = 253;
 
@@ -51,16 +56,18 @@ impl Packet for PacketV1 {
         })
     }
 
-    fn read_packet(id: u8, addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV1 {
+    fn read_packet(id: u8, addr: u16, length: u8) -> Result<Box<dyn InstructionPacket<Self>>> {
+        let addr = address(addr)?;
+        Ok(Box::new(InstructionPacketV1 {
             id,
             instruction: InstructionKindV1::Read,
             params: vec![addr, length],
-        })
+        }))
     }
 
-    fn write_packet(id: u8, addr: u8, data: &[u8]) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV1 {
+    fn write_packet(id: u8, addr: u16, data: &[u8]) -> Result<Box<dyn InstructionPacket<Self>>> {
+        let addr = address(addr)?;
+        Ok(Box::new(InstructionPacketV1 {
             id,
             instruction: InstructionKindV1::Write,
             params: {
@@ -68,11 +75,16 @@ impl Packet for PacketV1 {
                 params.extend(data);
                 params
             },
-        })
+        }))
     }
 
-    fn sync_read_packet(ids: &[u8], addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV1 {
+    fn sync_read_packet(
+        ids: &[u8],
+        addr: u16,
+        length: u8,
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        let addr = address(addr)?;
+        Ok(Box::new(InstructionPacketV1 {
             id: BROADCAST_ID,
             instruction: InstructionKindV1::SyncRead,
             params: {
@@ -80,15 +92,16 @@ impl Packet for PacketV1 {
                 params.extend(ids);
                 params
             },
-        })
+        }))
     }
 
     fn sync_write_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
-    ) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV1 {
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        let addr = address(addr)?;
+        Ok(Box::new(InstructionPacketV1 {
             id: BROADCAST_ID,
             instruction: InstructionKindV1::SyncWrite,
             params: {
@@ -106,7 +119,7 @@ impl Packet for PacketV1 {
                 params.extend(values);
                 params
             },
-        })
+        }))
     }
 
     fn get_payload_size(header: &[u8]) -> Result<usize> {
@@ -312,25 +325,25 @@ mod tests {
 
     #[test]
     fn create_read_packet() {
-        let p = PacketV1::read_packet(1, 0x2B, 1);
+        let p = PacketV1::read_packet(1, 0x2B, 1).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(bytes, [0xFF, 0xFF, 0x01, 0x04, 0x02, 0x2B, 0x01, 0xCC]);
     }
 
     #[test]
     fn create_write_packet() {
-        let p = PacketV1::write_packet(10, 24, &[1]);
+        let p = PacketV1::write_packet(10, 24, &[1]).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(bytes, [255, 255, 10, 4, 3, 24, 1, 213]);
 
-        let p = PacketV1::write_packet(0xFE, 0x03, &[1]);
+        let p = PacketV1::write_packet(0xFE, 0x03, &[1]).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(bytes, [0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x03, 0x01, 0xF6]);
     }
 
     #[test]
     fn create_sync_read_packet() {
-        let p = PacketV1::sync_read_packet(&[11, 12], 30, 2);
+        let p = PacketV1::sync_read_packet(&[11, 12], 30, 2).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -340,7 +353,8 @@ mod tests {
 
     #[test]
     fn create_sync_write_packet() {
-        let p = PacketV1::sync_write_packet(&[11, 12], 30, &[vec![0x0, 0x0], vec![0xA, 0x14]]);
+        let p =
+            PacketV1::sync_write_packet(&[11, 12], 30, &[vec![0x0, 0x0], vec![0xA, 0x14]]).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,

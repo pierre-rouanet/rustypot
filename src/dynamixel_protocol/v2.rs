@@ -35,7 +35,7 @@ impl V2 {
         &self,
         port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         self.send_instruction_packet(
@@ -51,7 +51,7 @@ impl V2 {
         &self,
         port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, u8)>> {
         self.send_instruction_packet(
@@ -67,7 +67,7 @@ impl PacketV2 {
     /// Same parameters as [`PacketV2::sync_read_packet`], only the instruction differs.
     pub(crate) fn fast_sync_read_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Box<dyn InstructionPacket<PacketV2>> {
         Box::new(InstructionPacketV2 {
@@ -75,7 +75,7 @@ impl PacketV2 {
             instruction: InstructionKindV2::FastSyncRead,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params.extend(ids);
                 params
@@ -275,57 +275,61 @@ impl Packet for PacketV2 {
         })
     }
 
-    fn read_packet(id: u8, addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn read_packet(id: u8, addr: u16, length: u8) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id,
             instruction: InstructionKindV2::Read,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params
             },
-        })
+        }))
     }
 
-    fn write_packet(id: u8, addr: u8, data: &[u8]) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn write_packet(id: u8, addr: u16, data: &[u8]) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id,
             instruction: InstructionKindV2::Write,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend(data);
                 params
             },
-        })
+        }))
     }
 
-    fn sync_read_packet(ids: &[u8], addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    fn sync_read_packet(
+        ids: &[u8],
+        addr: u16,
+        length: u8,
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id: BROADCAST_ID,
             instruction: InstructionKindV2::SyncRead,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((length as u16).to_le_bytes());
                 params.extend(ids);
                 params
             },
-        })
+        }))
     }
 
     fn sync_write_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
-    ) -> Box<dyn InstructionPacket<Self>> {
-        Box::new(InstructionPacketV2 {
+    ) -> Result<Box<dyn InstructionPacket<Self>>> {
+        Ok(Box::new(InstructionPacketV2 {
             id: BROADCAST_ID,
             instruction: InstructionKindV2::SyncWrite,
             params: {
                 let mut params = Vec::new();
-                params.extend((addr as u16).to_le_bytes());
+                params.extend(addr.to_le_bytes());
                 params.extend((data[0].len() as u16).to_le_bytes());
 
                 for (&id, value) in ids.iter().zip(data) {
@@ -335,7 +339,7 @@ impl Packet for PacketV2 {
 
                 params
             },
-        })
+        }))
     }
 
     fn status_packet(data: &[u8], sender_id: u8) -> Result<Box<dyn StatusPacket<Self>>> {
@@ -652,7 +656,7 @@ mod tests {
 
     #[test]
     fn create_read_packet() {
-        let p = PacketV2::read_packet(1, 0x2B, 2);
+        let p = PacketV2::read_packet(1, 0x2B, 2).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -662,7 +666,7 @@ mod tests {
 
     #[test]
     fn create_write_packet() {
-        let p = PacketV2::write_packet(1, 116, &512_u32.to_le_bytes());
+        let p = PacketV2::write_packet(1, 116, &512_u32.to_le_bytes()).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -675,7 +679,7 @@ mod tests {
 
     #[test]
     fn create_sync_read_packet() {
-        let p = PacketV2::sync_read_packet(&[1, 2], 132, 4);
+        let p = PacketV2::sync_read_packet(&[1, 2], 132, 4).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -695,7 +699,8 @@ mod tests {
                 150_u32.to_le_bytes().to_vec(),
                 170_u32.to_le_bytes().to_vec(),
             ],
-        );
+        )
+        .unwrap();
         let bytes = p.to_bytes();
         assert_eq!(
             bytes,
@@ -754,7 +759,7 @@ mod tests {
     fn create_write_packet_with_stuffing() {
         // Data containing FF FF FD must be stuffed on the wire and the length
         // field must count the extra byte (7 params -> nb_params = 10).
-        let p = PacketV2::write_packet(1, 116, &[0xFF, 0xFF, 0xFD, 0x00]);
+        let p = PacketV2::write_packet(1, 116, &[0xFF, 0xFF, 0xFD, 0x00]).unwrap();
         let bytes = p.to_bytes();
         assert_eq!(bytes[5..7], [0x0A, 0x00]);
         assert_eq!(

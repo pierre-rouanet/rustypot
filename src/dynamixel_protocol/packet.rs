@@ -25,14 +25,20 @@ pub trait Packet {
         conserve_id_and_baudrate: bool,
     ) -> Box<dyn InstructionPacket<Self>>;
 
-    fn read_packet(id: u8, addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>>;
-    fn write_packet(id: u8, addr: u8, data: &[u8]) -> Box<dyn InstructionPacket<Self>>;
-    fn sync_read_packet(ids: &[u8], addr: u8, length: u8) -> Box<dyn InstructionPacket<Self>>;
+    // Register addresses are 16 bits on protocol v2 and 8 on v1, whose packets refuse
+    // anything above 255 rather than truncate it.
+    fn read_packet(id: u8, addr: u16, length: u8) -> Result<Box<dyn InstructionPacket<Self>>>;
+    fn write_packet(id: u8, addr: u16, data: &[u8]) -> Result<Box<dyn InstructionPacket<Self>>>;
+    fn sync_read_packet(
+        ids: &[u8],
+        addr: u16,
+        length: u8,
+    ) -> Result<Box<dyn InstructionPacket<Self>>>;
     fn sync_write_packet(
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
-    ) -> Box<dyn InstructionPacket<Self>>;
+    ) -> Result<Box<dyn InstructionPacket<Self>>>;
 
     fn status_packet(data: &[u8], sender_id: u8) -> Result<Box<dyn StatusPacket<Self>>>;
 }

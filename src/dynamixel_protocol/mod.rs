@@ -300,7 +300,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<u8>> {
         let res = match &self.protocol {
@@ -344,7 +344,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<()> {
         let res = match &self.protocol {
@@ -376,7 +376,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, StatusError)> {
         let res = match &self.protocol {
@@ -394,7 +394,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<StatusError> {
         let res = match &self.protocol {
@@ -410,7 +410,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
         match &self.protocol {
@@ -464,7 +464,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         let res = match &self.protocol {
@@ -487,7 +487,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, StatusError)>> {
         let res = match &self.protocol {
@@ -545,7 +545,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         // The v1 arm never reaches the bus, so it has no gap to leave -- same shape as
@@ -595,7 +595,7 @@ impl DynamixelProtocolHandler {
         &self,
         serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
         let res = match &self.protocol {
@@ -689,10 +689,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| sp.params().to_vec())
     }
@@ -700,10 +700,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<()> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id).map(|_| ())
     }
 
@@ -711,10 +711,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, u8)> {
-        self.send_instruction_packet(port, P::read_packet(id, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::read_packet(id, addr, length)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| (sp.params().to_vec(), sp.error_byte()))
     }
@@ -723,10 +723,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<u8> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id).map(|sp| sp.error_byte())
     }
 
@@ -734,10 +734,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
-        self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::write_packet(id, addr, data)?.as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| sp.params().to_vec())
     }
@@ -746,10 +746,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
         let mut result = Vec::new();
         for &id in ids {
             let sp = self
@@ -763,10 +763,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, u8)>> {
-        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length).as_ref())?;
+        self.send_instruction_packet(port, P::sync_read_packet(ids, addr, length)?.as_ref())?;
         let mut result = Vec::with_capacity(ids.len());
         for &id in ids {
             let sp = self
@@ -780,10 +780,10 @@ trait Protocol<P: Packet> {
         &self,
         port: &mut (impl Transport + ?Sized),
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
-        self.send_instruction_packet(port, P::sync_write_packet(ids, addr, data).as_ref())?;
+        self.send_instruction_packet(port, P::sync_write_packet(ids, addr, data)?.as_ref())?;
         Ok(())
     }
 
@@ -983,6 +983,8 @@ pub enum CommunicationErrorKind {
 
     /// Operation not supported
     Unsupported,
+    /// A register address the protocol cannot carry: protocol v1 addresses stop at 255.
+    AddressOutOfRange(u16),
 }
 impl fmt::Display for CommunicationErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -994,6 +996,12 @@ impl fmt::Display for CommunicationErrorKind {
                 write!(f, "Incorrect id ({resp_id} instead of {sender_id})")
             }
             CommunicationErrorKind::Unsupported => write!(f, "Operation not supported"),
+            CommunicationErrorKind::AddressOutOfRange(addr) => {
+                write!(
+                    f,
+                    "Register address {addr} is out of range for this protocol"
+                )
+            }
         }
     }
 }
@@ -1239,6 +1247,35 @@ mod tests {
         let err = err.downcast_ref::<SyncReadError>().unwrap();
         assert_eq!(err.id, 4);
         assert_eq!(err.to_string(), "motor 4: Timeout error");
+    }
+
+    #[test]
+    fn protocol_v2_reaches_registers_above_255() {
+        // XL330 indirect data 21 sits at 634.
+        let dph = DynamixelProtocolHandler::v2();
+        let mut port = FakePort::new(vec![]);
+        let written = port.written();
+
+        assert!(dph.read(&mut port, 1, 634, 2).is_err()); // no answer scripted
+        let packet = &written.lock().unwrap()[0];
+        // Instruction 0x02 (read), then the address and the length, little-endian.
+        assert_eq!(packet[7..12], [0x02, 0x7A, 0x02, 0x02, 0x00]);
+    }
+
+    #[test]
+    fn protocol_v1_refuses_an_address_it_cannot_carry() {
+        let dph = DynamixelProtocolHandler::v1();
+        let mut port = FakePort::new(vec![]);
+        let written = port.written();
+
+        let err = dph.read(&mut port, 1, 256, 1).unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<CommunicationErrorKind>(),
+            Some(CommunicationErrorKind::AddressOutOfRange(256))
+        ));
+        assert!(dph.sync_write(&mut port, &[1], 300, &[vec![0]]).is_err());
+        // Nothing reached the bus.
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]

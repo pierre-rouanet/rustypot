@@ -475,7 +475,7 @@ pub fn sync_write_register(
 /// can only fail on the bus.
 pub(crate) struct SyncWrite {
     ids: Vec<u8>,
-    addr: u8,
+    addr: u16,
     data: Vec<Vec<u8>>,
 }
 

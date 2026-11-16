@@ -42,7 +42,7 @@ pub struct RegisterInfo {
     /// Register name, matching the generated accessor (`present_position` -> `read_present_position`).
     pub name: &'static str,
     /// Address in the control table.
-    pub addr: u8,
+    pub addr: u16,
     /// Size in bytes.
     pub size: u8,
     /// Whether the register can be read, written, or both.
@@ -64,7 +64,7 @@ impl RegisterInfo {
 
     /// Address in the control table.
     #[getter]
-    fn addr(&self) -> u8 {
+    fn addr(&self) -> u16 {
         self.addr
     }
 

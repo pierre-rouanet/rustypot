@@ -87,10 +87,10 @@ pub(super) async fn factory_reset<P: Packet>(
 pub(super) async fn sync_read<P: Packet>(
     port: &mut impl AsyncTransport,
     ids: &[u8],
-    addr: u8,
+    addr: u16,
     length: u8,
 ) -> Result<Vec<(Vec<u8>, u8)>> {
-    send(port, P::sync_read_packet(ids, addr, length).as_ref()).await?;
+    send(port, P::sync_read_packet(ids, addr, length)?.as_ref()).await?;
     let mut result = Vec::with_capacity(ids.len());
     for &id in ids {
         let answer = status::<P>(port, id)
@@ -105,7 +105,7 @@ pub(super) async fn sync_read<P: Packet>(
 pub(super) async fn fast_sync_read(
     port: &mut impl AsyncTransport,
     ids: &[u8],
-    addr: u8,
+    addr: u16,
     length: u8,
 ) -> Result<Vec<(Vec<u8>, u8)>> {
     send(

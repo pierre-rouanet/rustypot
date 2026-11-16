@@ -18,6 +18,14 @@
   per-register functions and a controller generic over its link. Broadcast ping,
   scanning and `Bus` are not in it yet.
 - `examples/embassy-rp2040`: XL330 motors driven from a Raspberry Pi Pico, built in CI.
+- **Breaking:** register addresses are `u16` everywhere (`RegisterInfo::addr`, the
+  handlers, the controllers' `*_raw_data`), so protocol v2 reaches the whole control table
+  (the XL330's indirect blocks above 255, for instance). Protocol v1 refuses an address
+  above 255 with the new `CommunicationErrorKind::AddressOutOfRange` before sending
+  anything.
+- A register answer of the wrong size is a `CommunicationErrorKind::ParsingError` instead
+  of a panic, in the blocking per-register functions and the AX/MX/XL320
+  position-speed-load helpers.
 - Register the Feetech STS3235 (model number 2057) under the STS3215 definition: it
   reads and moves through the STS3215 control table.
 

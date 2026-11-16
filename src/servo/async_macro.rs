@@ -104,12 +104,12 @@ macro_rules! generate_async_controller {
                 }
 
                 /// Read `length` raw bytes from address `addr` of motor `id`.
-                pub async fn read_raw_data(&mut self, id: u8, addr: u8, length: u8) -> $crate::Result<Vec<u8>> {
+                pub async fn read_raw_data(&mut self, id: u8, addr: u16, length: u8) -> $crate::Result<Vec<u8>> {
                     self.dph.read(&mut self.transport, id, addr, length).await
                 }
 
                 /// Write raw bytes to address `addr` of motor `id`.
-                pub async fn write_raw_data(&mut self, id: u8, addr: u8, data: &[u8]) -> $crate::Result<()> {
+                pub async fn write_raw_data(&mut self, id: u8, addr: u16, data: &[u8]) -> $crate::Result<()> {
                     self.dph.write(&mut self.transport, id, addr, data).await
                 }
 
@@ -117,7 +117,7 @@ macro_rules! generate_async_controller {
                 pub async fn read_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<(Vec<u8>, $crate::StatusError)> {
                     self.dph.read_with_error(&mut self.transport, id, addr, length).await
@@ -127,7 +127,7 @@ macro_rules! generate_async_controller {
                 pub async fn write_raw_data_with_error(
                     &mut self,
                     id: u8,
-                    addr: u8,
+                    addr: u16,
                     data: &[u8],
                 ) -> $crate::Result<$crate::StatusError> {
                     self.dph.write_with_error(&mut self.transport, id, addr, data).await
@@ -137,7 +137,7 @@ macro_rules! generate_async_controller {
                 pub async fn sync_read_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<Vec<u8>>> {
                     self.dph.sync_read(&mut self.transport, ids, addr, length).await
@@ -147,7 +147,7 @@ macro_rules! generate_async_controller {
                 pub async fn sync_read_raw_data_with_error(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     length: u8,
                 ) -> $crate::Result<Vec<(Vec<u8>, $crate::StatusError)>> {
                     self.dph.sync_read_with_error(&mut self.transport, ids, addr, length).await
@@ -157,7 +157,7 @@ macro_rules! generate_async_controller {
                 pub async fn sync_write_raw_data(
                     &mut self,
                     ids: &[u8],
-                    addr: u8,
+                    addr: u16,
                     data: &[Vec<u8>],
                 ) -> $crate::Result<()> {
                     self.dph.sync_write(&mut self.transport, ids, addr, data).await

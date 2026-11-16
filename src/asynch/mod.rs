@@ -29,6 +29,7 @@ pub use transport::{AsyncTransport, TransportError};
 
 use core::time::Duration;
 
+use crate::dynamixel_protocol::packet::Packet;
 use crate::dynamixel_protocol::v1::PacketV1;
 use crate::dynamixel_protocol::v2::PacketV2;
 use crate::dynamixel_protocol::{self, CommunicationErrorKind, ProtocolKind};
@@ -149,7 +150,7 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<u8>> {
         Ok(self.read_with_error(port, id, addr, length).await?.0)
@@ -160,7 +161,7 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<()> {
         self.write_with_error(port, id, addr, data)
@@ -174,15 +175,15 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         id: u8,
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<(Vec<u8>, StatusError)> {
         let res = match self.0.protocol {
             ProtocolKind::V1(_) => {
-                protocol::exchange(port, id, PacketV1::read(id, addr, length)).await
+                protocol::exchange(port, id, PacketV1::read_packet(id, addr, length)?).await
             }
             ProtocolKind::V2(..) => {
-                protocol::exchange(port, id, PacketV2::read(id, addr, length)).await
+                protocol::exchange(port, id, PacketV2::read_packet(id, addr, length)?).await
             }
         };
         self.post_delay(port).await;
@@ -194,15 +195,15 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<StatusError> {
         let res = match self.0.protocol {
             ProtocolKind::V1(_) => {
-                protocol::exchange(port, id, PacketV1::write(id, addr, data)).await
+                protocol::exchange(port, id, PacketV1::write_packet(id, addr, data)?).await
             }
             ProtocolKind::V2(..) => {
-                protocol::exchange(port, id, PacketV2::write(id, addr, data)).await
+                protocol::exchange(port, id, PacketV2::write_packet(id, addr, data)?).await
             }
         };
         self.post_delay(port).await;
@@ -215,12 +216,13 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         id: u8,
-        addr: u8,
+        addr: u16,
         data: &[u8],
     ) -> Result<Vec<u8>> {
         match self.0.protocol {
             ProtocolKind::V1(_) => {
-                let res = protocol::exchange(port, id, PacketV1::write(id, addr, data)).await;
+                let res =
+                    protocol::exchange(port, id, PacketV1::write_packet(id, addr, data)?).await;
                 self.post_delay(port).await;
                 res.map(|(values, _)| values)
             }
@@ -234,7 +236,7 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         Ok(self
@@ -250,7 +252,7 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<(Vec<u8>, StatusError)>> {
         let res = match self.0.protocol {
@@ -273,7 +275,7 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         length: u8,
     ) -> Result<Vec<Vec<u8>>> {
         match self.0.protocol {
@@ -292,48 +294,21 @@ impl DynamixelProtocolHandler {
         &self,
         port: &mut impl AsyncTransport,
         ids: &[u8],
-        addr: u8,
+        addr: u16,
         data: &[Vec<u8>],
     ) -> Result<()> {
         let res = match self.0.protocol {
             ProtocolKind::V1(_) => {
-                protocol::send(port, PacketV1::sync_write(ids, addr, data).as_ref()).await
+                protocol::send(port, PacketV1::sync_write_packet(ids, addr, data)?.as_ref()).await
             }
             ProtocolKind::V2(..) => {
-                protocol::send(port, PacketV2::sync_write(ids, addr, data).as_ref()).await
+                protocol::send(port, PacketV2::sync_write_packet(ids, addr, data)?.as_ref()).await
             }
         };
         self.post_delay(port).await;
         res
     }
 }
-
-/// Short names for the packet constructors, generic over the protocol.
-trait Packets: dynamixel_protocol::packet::Packet + Sized {
-    fn read(
-        id: u8,
-        addr: u8,
-        length: u8,
-    ) -> Box<dyn dynamixel_protocol::packet::InstructionPacket<Self>> {
-        Self::read_packet(id, addr, length)
-    }
-    fn write(
-        id: u8,
-        addr: u8,
-        data: &[u8],
-    ) -> Box<dyn dynamixel_protocol::packet::InstructionPacket<Self>> {
-        Self::write_packet(id, addr, data)
-    }
-    fn sync_write(
-        ids: &[u8],
-        addr: u8,
-        data: &[Vec<u8>],
-    ) -> Box<dyn dynamixel_protocol::packet::InstructionPacket<Self>> {
-        Self::sync_write_packet(ids, addr, data)
-    }
-}
-impl Packets for PacketV1 {}
-impl Packets for PacketV2 {}
 
 #[cfg(test)]
 mod tests;

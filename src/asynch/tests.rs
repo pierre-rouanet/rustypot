@@ -165,6 +165,21 @@ fn leftovers_of_an_earlier_exchange_are_dropped_before_sending() {
 }
 
 #[test]
+fn addresses_above_255_go_out_on_v2_and_are_refused_on_v1() {
+    let mut link = Link::new(vec![]);
+    let _ = block_on(DynamixelProtocolHandler::v2().read(&mut link, 1, 634, 2));
+    assert_eq!(link.written[0][7..12], [0x02, 0x7A, 0x02, 0x02, 0x00]);
+
+    let mut link = Link::new(vec![]);
+    let err = block_on(DynamixelProtocolHandler::v1().write(&mut link, 1, 256, &[0])).unwrap_err();
+    assert!(matches!(
+        err.downcast_ref::<CommunicationErrorKind>(),
+        Some(CommunicationErrorKind::AddressOutOfRange(256))
+    ));
+    assert!(link.written.is_empty());
+}
+
+#[test]
 fn a_v1_factory_reset_cannot_keep_the_id() {
     let mut link = Link::new(vec![]);
     let dph = DynamixelProtocolHandler::v1();
