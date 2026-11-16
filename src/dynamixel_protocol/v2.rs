@@ -1,6 +1,6 @@
 use std::io;
 
-use serialport::SerialPort;
+use crate::Transport;
 
 use crate::Result;
 
@@ -25,7 +25,7 @@ impl V2 {
     /// firmware does not answer and the read times out.
     pub(crate) fn fast_sync_read(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -41,7 +41,7 @@ impl V2 {
     /// Same as [`V2::fast_sync_read`], and also returns each motor's error byte.
     pub(crate) fn fast_sync_read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -173,7 +173,7 @@ fn parse_fast_sync_read_status_with_error(
 /// motor did not answer: the blocks come back in the order asked, so the packet stops at the
 /// first one missing. A timeout here is not an error but the end of the data; the parser
 /// finds where it ended. Any other I/O error is the port's, not a motor's, and is returned.
-fn read_fast_sync_status_bytes(port: &mut dyn SerialPort) -> Result<Vec<u8>> {
+fn read_fast_sync_status_bytes(port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
     let mut data = read_until_timeout(port, PacketV2::HEADER_SIZE)?;
     if data.len() == PacketV2::HEADER_SIZE {
         if let Ok(payload_size) = PacketV2::get_payload_size(&data) {
@@ -184,7 +184,7 @@ fn read_fast_sync_status_bytes(port: &mut dyn SerialPort) -> Result<Vec<u8>> {
 }
 
 /// Up to `len` bytes, fewer if the port times out first.
-fn read_until_timeout(port: &mut dyn SerialPort, len: usize) -> Result<Vec<u8>> {
+fn read_until_timeout(port: &mut (impl Transport + ?Sized), len: usize) -> Result<Vec<u8>> {
     let mut data = vec![0u8; len];
     let mut filled = 0;
     while filled < len {

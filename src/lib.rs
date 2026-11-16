@@ -2,7 +2,7 @@
 //!
 //! ## Feature Overview
 //!
-//! * Relies on [serialport] for serial communication
+//! * Relies on [serialport] for serial communication, or on any link implementing [`Transport`]
 //! * Support for dynamixel protocol v1 and v2 (both can be used on the same io)
 //! * Support for sync read and sync write operations, plus fast sync read (protocol v2)
 //! * Easy support for new type of motors (register definition through macros)
@@ -61,6 +61,8 @@ pub mod bus;
 pub mod servo;
 
 mod dynamixel_protocol;
+pub mod transport;
+pub use transport::Transport;
 #[cfg(test)]
 mod fake_port;
 pub use dynamixel_protocol::{

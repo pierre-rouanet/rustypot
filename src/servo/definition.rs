@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use serialport::SerialPort;
+use crate::Transport;
 
 use crate::servo::{scan_timeout, RegisterError, RegisterInfo, ServoInfo, WordOrder};
 use crate::{DynamixelErrorV1, DynamixelProtocolHandler, Result, StatusError, StatusPacketError};
@@ -63,7 +63,7 @@ impl ServoDefinition {
     pub fn read_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
     ) -> Result<i64> {
@@ -78,7 +78,7 @@ impl ServoDefinition {
     pub fn read_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
     ) -> Result<(i64, StatusError)> {
@@ -94,7 +94,7 @@ impl ServoDefinition {
     pub fn write_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
@@ -114,7 +114,7 @@ impl ServoDefinition {
     pub fn write_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
@@ -138,7 +138,7 @@ impl ServoDefinition {
     pub fn sync_read_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
     ) -> Result<Vec<i64>> {
@@ -150,7 +150,7 @@ impl ServoDefinition {
     pub fn sync_read_register_with_error(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
     ) -> Result<Vec<(i64, StatusError)>> {
@@ -162,7 +162,7 @@ impl ServoDefinition {
     pub fn sync_write_register(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         name: &str,
         values: &[i64],
@@ -180,7 +180,7 @@ impl ServoDefinition {
     pub fn scan(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
     ) -> Result<BTreeMap<u8, u16>> {
         self.check_protocol(dph)?;
@@ -208,7 +208,7 @@ impl ServoDefinition {
     pub fn broadcast_scan(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
     ) -> Result<BTreeMap<u8, u16>> {
         self.check_protocol(dph)?;
@@ -228,7 +228,7 @@ impl ServoDefinition {
     fn model_number(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         reg: RegisterInfo,
         id: u8,
     ) -> Option<(u8, u16)> {
@@ -246,7 +246,7 @@ impl ServoDefinition {
     pub fn change_id(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         new_id: u8,
     ) -> Result<()> {
@@ -263,7 +263,7 @@ impl ServoDefinition {
     pub fn change_baudrate(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         baudrate: u32,
     ) -> Result<()> {
@@ -286,7 +286,7 @@ impl ServoDefinition {
     fn open_eeprom(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
     ) -> Result<()> {
         self.write_checked(dph, port, id, "torque_enable", 0)?;
@@ -301,7 +301,7 @@ impl ServoDefinition {
     fn write_checked(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         name: &str,
         value: i64,
@@ -388,7 +388,7 @@ fn ids(motors: &[(u8, ServoDefinition)]) -> Vec<u8> {
 /// time instead, in the order given.
 pub fn sync_read_register(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
 ) -> Result<Vec<i64>> {
@@ -412,7 +412,7 @@ pub fn sync_read_register(
 /// Same as [`sync_read_register`], plus each motor's error field.
 pub fn sync_read_register_with_error(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
 ) -> Result<Vec<(i64, StatusError)>> {
@@ -438,7 +438,7 @@ pub fn sync_read_register_with_error(
 /// as [`sync_read_register`] apply to the definitions.
 pub fn sync_write_register(
     dph: &DynamixelProtocolHandler,
-    port: &mut dyn SerialPort,
+    port: &mut (impl Transport + ?Sized),
     motors: &[(u8, ServoDefinition)],
     name: &str,
     values: &[i64],
@@ -492,7 +492,7 @@ impl SyncWrite {
     pub(crate) fn send(
         &self,
         dph: &DynamixelProtocolHandler,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
     ) -> Result<()> {
         dph.sync_write(port, &self.ids, self.addr, &self.data)
     }

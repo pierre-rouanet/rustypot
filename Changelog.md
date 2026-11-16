@@ -1,5 +1,11 @@
 ## Unreleased
 
+- `Transport`: the protocol now runs over any byte link, not only a `serialport` port
+  (first step of #73). Every `serialport::SerialPort` is a `Transport`, so existing
+  `serial_port.as_mut()` calls are unchanged. The protocol handler, the per-register
+  functions and `ServoDefinition` take `&mut (impl Transport + ?Sized)`; controllers gain
+  `with_transport` and `Bus` gains `from_transport`, both taking a
+  `Box<dyn Transport + Send>`.
 - Register the Feetech STS3235 (model number 2057) under the STS3215 definition: it
   reads and moves through the STS3215 control table.
 

@@ -45,7 +45,7 @@ generate_servo!(
 /// reg_read_only!(present_position_speed_load, 36, (i16, u16, u16))
 pub fn sync_read_present_position_speed_load(
     dph: &crate::DynamixelProtocolHandler,
-    serial_port: &mut dyn serialport::SerialPort,
+    serial_port: &mut (impl crate::Transport + ?Sized),
     ids: &[u8],
 ) -> crate::Result<Vec<(i16, u16, u16)>> {
     let val = dph.sync_read(serial_port, ids, 37, 2 + 2 + 2)?;

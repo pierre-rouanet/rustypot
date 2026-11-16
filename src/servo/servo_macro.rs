@@ -17,7 +17,7 @@ macro_rules! generate_servo {
         paste::paste! {
             pub struct [<$servo_name:camel Controller>] {
                 dph: Option<$crate::DynamixelProtocolHandler>,
-                serial_port: Option<Box<dyn serialport::SerialPort>>,
+                serial_port: Option<Box<dyn $crate::Transport + Send>>,
             }
 
             impl Default for [<$servo_name:camel Controller>] {
@@ -33,8 +33,15 @@ macro_rules! generate_servo {
                 pub fn with_serial_port(self,
                                         serial_port: Box<dyn serialport::SerialPort>,
                 ) -> Self {
+                    self.with_transport($crate::transport::BoxedSerialPort::boxed(serial_port))
+                }
+
+                /// Talk to the motors over `transport` instead of a serial port.
+                ///
+                /// See [`Transport`]($crate::Transport) for what the link must provide.
+                pub fn with_transport(self, transport: Box<dyn $crate::Transport + Send>) -> Self {
                     Self {
-                        serial_port: Some(serial_port),
+                        serial_port: Some(transport),
                         ..self
                     }
                 }
@@ -740,7 +747,7 @@ macro_rules! generate_register_access {
         paste::paste! {
             impl [<$servo_name:camel Controller>] {
                 /// The protocol handler and the port, for [`DEFINITION`]'s functions.
-                fn wire(&mut self) -> (&$crate::DynamixelProtocolHandler, &mut dyn serialport::SerialPort) {
+                fn wire(&mut self) -> (&$crate::DynamixelProtocolHandler, &mut dyn $crate::Transport) {
                     (self.dph.as_ref().unwrap(), self.serial_port.as_mut().unwrap().as_mut())
                 }
 
@@ -1187,7 +1194,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
@@ -1199,7 +1206,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<$reg_type>> {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
@@ -1305,7 +1312,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<read_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<$reg_type> {
                 let val = io.read(serial_port, id, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
@@ -1317,7 +1324,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
             ) -> $crate::Result<<$conv as Conversion>::UsiType> {
                 let val = [<read_raw_ $reg_name>](io, serial_port, id)?;
@@ -1328,7 +1335,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_read_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<$reg_type>> {
                 let val: Vec<Vec<u8>> = io.sync_read(serial_port, ids, $reg_addr, size_of::<$reg_type>().try_into().unwrap())?;
@@ -1343,7 +1350,7 @@ macro_rules! generate_reg_read {
             #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<sync_read_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
             ) -> $crate::Result<Vec<<$conv as Conversion>::UsiType>> {
                 let val = [<sync_read_raw_ $reg_name>](io, serial_port, ids)?;
@@ -1512,7 +1519,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<()> {
@@ -1522,7 +1529,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {
@@ -1621,7 +1628,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<()> {
@@ -1631,7 +1638,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: <$conv as Conversion>::UsiType,
             ) -> $crate::Result<()> {
@@ -1642,7 +1649,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write raw register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_raw_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {
@@ -1660,7 +1667,7 @@ macro_rules! generate_reg_write {
             #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", converted by ", stringify!($conv), ")")]
             pub fn [<sync_write_ $reg_name>](
                 io: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[<$conv as Conversion>::UsiType],
             ) -> $crate::Result<()> {
@@ -1826,7 +1833,7 @@ macro_rules! generate_reg_write_fb {
             #[doc = concat!("Write register with fb *", stringify!($name), "* (addr: ", stringify!($addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<write_ $name _fb>](
                 dph: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 id: u8,
                 val: $reg_type,
             ) -> $crate::Result<$fb_type> {
@@ -1838,7 +1845,7 @@ macro_rules! generate_reg_write_fb {
             #[doc = concat!("Sync write register *", stringify!($name), "* (addr: ", stringify!($addr), ", type: ", stringify!($reg_type), ")")]
             pub fn [<sync_write_ $name _fb>](
                 dph: &$crate::DynamixelProtocolHandler,
-                serial_port: &mut dyn serialport::SerialPort,
+                serial_port: &mut (impl $crate::Transport + ?Sized),
                 ids: &[u8],
                 values: &[$reg_type],
             ) -> $crate::Result<()> {

@@ -1,4 +1,4 @@
-use serialport::SerialPort;
+use crate::Transport;
 
 mod packet;
 use packet::{InstructionPacket, Packet, StatusPacket};
@@ -171,7 +171,7 @@ impl DynamixelProtocolHandler {
     ///     false => println!("Motor 42 did not respond"),
     /// }
     /// ```
-    pub fn ping(&self, serial_port: &mut dyn serialport::SerialPort, id: u8) -> Result<bool> {
+    pub fn ping(&self, serial_port: &mut (impl crate::Transport + ?Sized), id: u8) -> Result<bool> {
         match &self.protocol {
             ProtocolKind::V1(p) => p.ping(serial_port, id),
             ProtocolKind::V2(p, _) => p.ping(serial_port, id),
@@ -187,7 +187,10 @@ impl DynamixelProtocolHandler {
     ///
     /// Only some firmwares answer: protocol v2 Dynamixel and Feetech STS do, protocol v1
     /// Dynamixel and Feetech SCS stay silent, which reads as no motor at all.
-    pub fn broadcast_ping(&self, serial_port: &mut dyn serialport::SerialPort) -> Result<Vec<u8>> {
+    pub fn broadcast_ping(
+        &self,
+        serial_port: &mut (impl crate::Transport + ?Sized),
+    ) -> Result<Vec<u8>> {
         let window = self.broadcast_ping_window(serial_port.baud_rate()?);
         let timeout = serial_port.timeout();
         let ids = match &self.protocol {
@@ -219,7 +222,11 @@ impl DynamixelProtocolHandler {
     ///
     /// Reboot the motor with specified `id`.
     /// Returns an [CommunicationErrorKind] if the communication fails.
-    pub fn reboot(&self, serial_port: &mut dyn serialport::SerialPort, id: u8) -> Result<bool> {
+    pub fn reboot(
+        &self,
+        serial_port: &mut (impl crate::Transport + ?Sized),
+        id: u8,
+    ) -> Result<bool> {
         match &self.protocol {
             ProtocolKind::V1(p) => p.reboot(serial_port, id),
             ProtocolKind::V2(p, _) => p.reboot(serial_port, id),
@@ -232,7 +239,7 @@ impl DynamixelProtocolHandler {
     /// Please note that conserving ID and/or Baudrate is only supported on protocol v2.
     pub fn factory_reset(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
@@ -283,7 +290,7 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         addr: u8,
         length: u8,
@@ -327,7 +334,7 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn write(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         addr: u8,
         data: &[u8],
@@ -359,7 +366,7 @@ impl DynamixelProtocolHandler {
     ///   read from the Hardware Error Status register.
     pub fn read_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         addr: u8,
         length: u8,
@@ -377,7 +384,7 @@ impl DynamixelProtocolHandler {
     /// error field. See [DynamixelProtocolHandler::read_with_error].
     pub fn write_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         addr: u8,
         data: &[u8],
@@ -393,7 +400,7 @@ impl DynamixelProtocolHandler {
 
     pub fn write_fb(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         id: u8,
         addr: u8,
         data: &[u8],
@@ -447,7 +454,7 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn sync_read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -470,7 +477,7 @@ impl DynamixelProtocolHandler {
     /// byte on each protocol.
     pub fn sync_read_with_error(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -528,7 +535,7 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn fast_sync_read(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -578,7 +585,7 @@ impl DynamixelProtocolHandler {
     /// ```
     pub fn sync_write(
         &self,
-        serial_port: &mut dyn serialport::SerialPort,
+        serial_port: &mut (impl crate::Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         data: &[Vec<u8>],
@@ -614,7 +621,7 @@ fn status_packet_ids<P: Packet>(bytes: &[u8]) -> Vec<u8> {
 }
 
 trait Protocol<P: Packet> {
-    fn ping(&self, port: &mut dyn SerialPort, id: u8) -> Result<bool> {
+    fn ping(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
         self.send_instruction_packet(port, P::ping_packet(id).as_ref())?;
 
         Ok(self.read_status_packet(port, id).is_ok())
@@ -623,7 +630,11 @@ trait Protocol<P: Packet> {
     /// Ping the broadcast id, collect every byte that arrives until `window` closes, and
     /// return the ids of the status packets among them. Changes the port's timeout; the
     /// caller puts it back.
-    fn broadcast_ping(&self, port: &mut dyn SerialPort, window: Duration) -> Result<Vec<u8>> {
+    fn broadcast_ping(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        window: Duration,
+    ) -> Result<Vec<u8>> {
         self.send_instruction_packet(port, P::ping_packet(P::BROADCAST_ID).as_ref())?;
         let deadline = Instant::now() + window;
         let mut received = Vec::new();
@@ -644,7 +655,7 @@ trait Protocol<P: Packet> {
         Ok(status_packet_ids::<P>(&received))
     }
 
-    fn reboot(&self, port: &mut dyn SerialPort, id: u8) -> Result<bool> {
+    fn reboot(&self, port: &mut (impl Transport + ?Sized), id: u8) -> Result<bool> {
         self.send_instruction_packet(port, P::reboot_packet(id).as_ref())?;
 
         Ok(self.read_status_packet(port, id).is_ok())
@@ -652,7 +663,7 @@ trait Protocol<P: Packet> {
 
     fn factory_reset(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         conserve_id_only: bool,
         conserve_id_and_baudrate: bool,
@@ -664,19 +675,31 @@ trait Protocol<P: Packet> {
         self.read_status_packet(port, id).map(|_| ())
     }
 
-    fn read(&self, port: &mut dyn SerialPort, id: u8, addr: u8, length: u8) -> Result<Vec<u8>> {
+    fn read(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        id: u8,
+        addr: u8,
+        length: u8,
+    ) -> Result<Vec<u8>> {
         self.send_instruction_packet(port, P::read_packet(id, addr, length).as_ref())?;
         self.read_status_packet(port, id)
             .map(|sp| sp.params().to_vec())
     }
-    fn write(&self, port: &mut dyn SerialPort, id: u8, addr: u8, data: &[u8]) -> Result<()> {
+    fn write(
+        &self,
+        port: &mut (impl Transport + ?Sized),
+        id: u8,
+        addr: u8,
+        data: &[u8],
+    ) -> Result<()> {
         self.send_instruction_packet(port, P::write_packet(id, addr, data).as_ref())?;
         self.read_status_packet(port, id).map(|_| ())
     }
 
     fn read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         addr: u8,
         length: u8,
@@ -688,7 +711,7 @@ trait Protocol<P: Packet> {
 
     fn write_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         addr: u8,
         data: &[u8],
@@ -699,7 +722,7 @@ trait Protocol<P: Packet> {
 
     fn write_fb(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         id: u8,
         addr: u8,
         data: &[u8],
@@ -711,7 +734,7 @@ trait Protocol<P: Packet> {
 
     fn sync_read(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -728,7 +751,7 @@ trait Protocol<P: Packet> {
     }
     fn sync_read_with_error(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         length: u8,
@@ -745,7 +768,7 @@ trait Protocol<P: Packet> {
     }
     fn sync_write(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         ids: &[u8],
         addr: u8,
         data: &[Vec<u8>],
@@ -759,7 +782,7 @@ trait Protocol<P: Packet> {
 
     fn flush_if_needed(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         max_retries: usize,
         flush_after_delay: Duration,
     ) -> Result<()> {
@@ -785,7 +808,7 @@ trait Protocol<P: Packet> {
 
     fn send_instruction_packet(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         packet: &dyn InstructionPacket<P>,
     ) -> Result<()> {
         // Before we send an instruction
@@ -805,7 +828,7 @@ trait Protocol<P: Packet> {
         }
     }
     /// Read one status packet off the wire, header included, without interpreting it.
-    fn read_status_packet_bytes(&self, port: &mut dyn SerialPort) -> Result<Vec<u8>> {
+    fn read_status_packet_bytes(&self, port: &mut (impl Transport + ?Sized)) -> Result<Vec<u8>> {
         let mut header = vec![0u8; P::HEADER_SIZE];
         port.read_exact(&mut header)?;
 
@@ -824,20 +847,20 @@ trait Protocol<P: Packet> {
 
     fn read_status_packet(
         &self,
-        port: &mut dyn SerialPort,
+        port: &mut (impl Transport + ?Sized),
         sender_id: u8,
     ) -> Result<Box<dyn StatusPacket<P>>> {
         let data = self.read_status_packet_bytes(port)?;
         P::status_packet(&data, sender_id)
     }
 
-    fn is_input_buffer_empty(&self, port: &mut dyn SerialPort) -> Result<bool> {
-        let n = port.bytes_to_read()? as usize;
+    fn is_input_buffer_empty(&self, port: &mut (impl Transport + ?Sized)) -> Result<bool> {
+        let n = port.bytes_to_read()?;
         Ok(n == 0)
     }
 
-    fn flush(&self, port: &mut dyn SerialPort) -> Result<()> {
-        let n = port.bytes_to_read()? as usize;
+    fn flush(&self, port: &mut (impl Transport + ?Sized)) -> Result<()> {
+        let n = port.bytes_to_read()?;
         if n > 0 {
             // log::info!("Needed to flush serial port ({n} bytes)...");
             let mut buff = vec![0u8; n];
