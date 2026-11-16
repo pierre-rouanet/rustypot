@@ -1,0 +1,33 @@
+[package]
+name = "rustypot-embassy-rp2040"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Drive Dynamixel servos from a Raspberry Pi Pico with rustypot's async API on embassy."
+
+[dependencies]
+rustypot = { path = "../..", default-features = false, features = ["async"] }
+
+embassy-rp = { version = "0.10", features = ["defmt", "rp2040", "time-driver", "critical-section-impl"] }
+embassy-executor = { version = "0.10", features = ["defmt", "platform-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5", features = ["defmt", "defmt-timestamp-uptime"] }
+embedded-hal = "1.0"
+embassy-futures = "0.1.2"
+embedded-alloc = { version = "0.7", features = ["llff"] }
+cortex-m-rt = "0.7"
+static_cell = "2"
+# Cortex-M0+ has no atomic compare-and-swap: emulate it with critical sections.
+portable-atomic = { version = "1", features = ["critical-section"] }
+
+defmt = "1.0"
+defmt-rtt = "1.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+
+[profile.release]
+debug = 2
+lto = true
+opt-level = "s"
+
+[profile.dev]
+opt-level = "s"

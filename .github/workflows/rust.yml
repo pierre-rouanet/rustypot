@@ -22,5 +22,28 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run tests with the async API
+      run: cargo test --verbose --features async
     - name: Format
       run: cargo fmt --all -- --check
+
+  # Without std, as on a microcontroller: the library alone, with the async API, and the
+  # embassy example for the Raspberry Pi Pico.
+  embedded:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: thumbv6m-none-eabi
+
+    - name: Build without std
+      run: cargo build --lib --no-default-features --target thumbv6m-none-eabi
+    - name: Build without std, with the async API
+      run: cargo build --lib --no-default-features --features async --target thumbv6m-none-eabi
+    - name: Build the RP2040 example
+      working-directory: examples/embassy-rp2040
+      run: cargo build --release

@@ -6,6 +6,18 @@
   functions and `ServoDefinition` take `&mut (impl Transport + ?Sized)`; controllers gain
   `with_transport` and `Bus` gains `from_transport`, both taking a
   `Box<dyn Transport + Send>`.
+- `no_std`: a new default `std` feature holds the blocking API (serial ports,
+  controllers, `Bus`, scanning). Without it the crate needs only `core` and `alloc`.
+  `signal-hook` and `env_logger` became dev-dependencies, and the unused `num_enum` and
+  `proc-macro2` were dropped. The blocking `DynamixelProtocolHandler` is exported only
+  with `std`.
+- Async API (feature `async`, with or without `std`): `rustypot::asynch` has the
+  `AsyncTransport` trait, `EmbeddedIoTransport` (any `embedded-io-async` serial port and
+  `embedded-hal-async` delay, e.g. an embassy UART) and an async
+  `DynamixelProtocolHandler`; each servo module has an `asynch` module with async
+  per-register functions and a controller generic over its link. Broadcast ping,
+  scanning and `Bus` are not in it yet.
+- `examples/embassy-rp2040`: XL330 motors driven from a Raspberry Pi Pico, built in CI.
 - Register the Feetech STS3235 (model number 2057) under the STS3215 definition: it
   reads and moves through the STS3215 control table.
 

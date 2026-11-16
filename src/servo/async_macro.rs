@@ -226,7 +226,7 @@ macro_rules! async_decode {
 macro_rules! generate_async_reg_read {
     ($servo_name:ident, $reg_name:ident, $reg_addr:expr, $reg_type:ty, None) => {
         paste::paste! {
-            #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+            #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
             pub async fn [<read_ $reg_name>](
                 dph: &$crate::asynch::DynamixelProtocolHandler,
                 port: &mut impl $crate::asynch::AsyncTransport,
@@ -236,7 +236,7 @@ macro_rules! generate_async_reg_read {
                 Ok($crate::async_decode!($reg_type, bytes))
             }
 
-            #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+            #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
             pub async fn [<sync_read_ $reg_name>](
                 dph: &$crate::asynch::DynamixelProtocolHandler,
                 port: &mut impl $crate::asynch::AsyncTransport,
@@ -251,12 +251,12 @@ macro_rules! generate_async_reg_read {
             }
 
             impl<T: $crate::asynch::AsyncTransport> [<$servo_name:camel Controller>]<T> {
-                #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+                #[doc = concat!("Read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
                 pub async fn [<read_ $reg_name>](&mut self, id: u8) -> $crate::Result<$reg_type> {
                     [<read_ $reg_name>](&self.dph, &mut self.transport, id).await
                 }
 
-                #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+                #[doc = concat!("Sync read register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
                 pub async fn [<sync_read_ $reg_name>](&mut self, ids: &[u8]) -> $crate::Result<Vec<$reg_type>> {
                     [<sync_read_ $reg_name>](&self.dph, &mut self.transport, ids).await
                 }
@@ -306,7 +306,7 @@ macro_rules! generate_async_reg_read {
 macro_rules! generate_async_reg_write {
     ($servo_name:ident, $reg_name:ident, $reg_addr:expr, $reg_type:ty, None) => {
         paste::paste! {
-            #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+            #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
             pub async fn [<write_ $reg_name>](
                 dph: &$crate::asynch::DynamixelProtocolHandler,
                 port: &mut impl $crate::asynch::AsyncTransport,
@@ -316,7 +316,7 @@ macro_rules! generate_async_reg_write {
                 dph.write(port, id, $reg_addr, &value.to_le_bytes()).await
             }
 
-            #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+            #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
             pub async fn [<sync_write_ $reg_name>](
                 dph: &$crate::asynch::DynamixelProtocolHandler,
                 port: &mut impl $crate::asynch::AsyncTransport,
@@ -328,12 +328,12 @@ macro_rules! generate_async_reg_write {
             }
 
             impl<T: $crate::asynch::AsyncTransport> [<$servo_name:camel Controller>]<T> {
-                #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+                #[doc = concat!("Write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
                 pub async fn [<write_ $reg_name>](&mut self, id: u8, value: $reg_type) -> $crate::Result<()> {
                     [<write_ $reg_name>](&self.dph, &mut self.transport, id, value).await
                 }
 
-                #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: ", stringify!($reg_type), ")")]
+                #[doc = concat!("Sync write register *", stringify!($reg_name), "* (addr: ", stringify!($reg_addr), ", type: `", stringify!($reg_type), "`)")]
                 pub async fn [<sync_write_ $reg_name>](&mut self, ids: &[u8], values: &[$reg_type]) -> $crate::Result<()> {
                     [<sync_write_ $reg_name>](&self.dph, &mut self.transport, ids, values).await
                 }
