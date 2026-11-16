@@ -996,9 +996,14 @@ dependencies = [
  "pyo3",
  "pyo3-log",
  "pyo3-stub-gen",
+ "rustypot-core",
  "serialport",
  "signal-hook",
 ]
+
+[[package]]
+name = "rustypot-core"
+version = "0.1.0"
 
 [[package]]
 name = "scopeguard"

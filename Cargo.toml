@@ -13,6 +13,11 @@ exclude = ["examples/embassy-rp2040"]
 keywords = ["robotics", "dynamixel", "feetech"]
 categories = ["science::robotics"]
 
+[workspace]
+members = [".", "rustypot-core"]
+# Built on its own, for the RP2040.
+exclude = ["examples/embassy-rp2040"]
+
 [lib]
 crate-type = ["lib", "cdylib"]
 
@@ -29,6 +34,7 @@ python = ["std", "dep:pyo3", "dep:pyo3-log", "dep:pyo3-stub-gen", "dep:env_logge
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rustypot-core = { version = "0.1.0", path = "rustypot-core" }
 log = { version = "0.4.17", default-features = false }
 paste = "1.0.10"
 serialport = { version = "4.2.0", default-features = false, optional = true }
